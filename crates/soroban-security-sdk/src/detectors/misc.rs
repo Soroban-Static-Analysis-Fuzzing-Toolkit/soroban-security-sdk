@@ -1,4 +1,5 @@
-//! Randomness, upgrade and panic-safety detectors (`SSDK011`, `SSDK012`, `SSDK013`).
+//! Randomness, upgrade, deployment and panic-safety detectors
+//! (`SSDK011`, `SSDK012`, `SSDK013`, `SSDK024`).
 
 use crate::category::Category;
 use crate::context::AnalysisContext;
@@ -113,6 +114,74 @@ impl Detector for UnauthorizedUpgrade {
 }
 
 crate::declare_detector!(UnauthorizedUpgrade);
+
+/// `SSDK024`: a contract deployment that is not authorized.
+///
+/// `SSDK012` covers upgrades of the running contract. Deploying a *new* contract is
+/// equally privileged — in the factory/deployer pattern the deployer can become the
+/// admin of the derived contract — so an unauthenticated deploy lets anyone install
+/// code and consume the protocol's resources.
+#[derive(Debug, Default)]
+pub struct UnauthorizedDeploy;
+
+impl Detector for UnauthorizedDeploy {
+    const META: DetectorMeta = DetectorMeta::new(
+        RuleId::new("SSDK024"),
+        "unauthorized-deploy",
+        "A contract deployment is reachable without authorization.",
+    )
+    .severity(Severity::High)
+    .confidence(Confidence::High)
+    .category(Category::Upgradeability)
+    .description(
+        "Deploying a contract installs new code and, in the factory pattern, makes \
+         the caller the admin of the deployed instance. A deploy path with no \
+         `require_auth` hands that privilege to anyone, letting them spawn contracts \
+         at the protocol's expense.",
+    )
+    .tags(&["deploy", "factory", "auth"])
+    .references(&[Reference::new(
+        "Stellar docs: Deploying contracts",
+        "https://developers.stellar.org/docs/learn/encyclopedia/contract-development/",
+    )]);
+
+    fn detect<'a>(&self, ctx: &AnalysisContext<'a>, sink: &mut FindingSink<'a>) {
+        let model = ctx.model();
+        for site in &model.upgrades {
+            if !site.deploys() {
+                continue;
+            }
+            // The ordinary factory gates the deploy on an admin, exactly like an
+            // upgrade; only the missing check is reported.
+            if model.has_transitive_auth(&site.site.function) {
+                continue;
+            }
+            let mut builder = sink
+                .report(format!(
+                    "`{}` deploys a contract without authorizing the caller",
+                    site.method
+                ))
+                .severity(Severity::High)
+                .primary(site.site.file, site.span)
+                .in_function(site.site.function.clone());
+            if site.argument_is_parameter {
+                builder = builder.note(
+                    "The deployment argument also comes straight from the caller, so an \
+                     attacker chooses what is deployed.",
+                );
+            }
+            builder
+                .note(
+                    "In the factory pattern the deployer typically becomes the admin of \
+                     the new contract.",
+                )
+                .help("Gate the deploy behind an admin `require_auth`, or restrict callers to a known set.")
+                .emit();
+        }
+    }
+}
+
+crate::declare_detector!(UnauthorizedDeploy);
 
 /// `SSDK013`: a panicking expression that aborts the whole transaction.
 #[derive(Debug, Default)]

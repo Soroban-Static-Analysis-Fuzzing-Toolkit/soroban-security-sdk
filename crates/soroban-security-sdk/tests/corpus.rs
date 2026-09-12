@@ -34,6 +34,11 @@ const FIXTURES: &[Fixture] = &[
         expected: &[],
     },
     Fixture {
+        name: "clean/bounded_storage.rs",
+        source: include_str!("fixtures/clean/bounded_storage.rs"),
+        expected: &[],
+    },
+    Fixture {
         name: "vulnerable/missing_auth.rs",
         source: include_str!("fixtures/vulnerable/missing_auth.rs"),
         expected: &["SSDK001"],
@@ -97,6 +102,16 @@ const FIXTURES: &[Fixture] = &[
         name: "vulnerable/panic.rs",
         source: include_str!("fixtures/vulnerable/panic.rs"),
         expected: &["SSDK013"],
+    },
+    Fixture {
+        name: "vulnerable/unbounded_growth.rs",
+        source: include_str!("fixtures/vulnerable/unbounded_growth.rs"),
+        expected: &["SSDK023"],
+    },
+    Fixture {
+        name: "vulnerable/unauthorized_deploy.rs",
+        source: include_str!("fixtures/vulnerable/unauthorized_deploy.rs"),
+        expected: &["SSDK024"],
     },
     // A single contract with several independent problems, to exercise rule
     // interaction rather than one isolated pattern at a time.

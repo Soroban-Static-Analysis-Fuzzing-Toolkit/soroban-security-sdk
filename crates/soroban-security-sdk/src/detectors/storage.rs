@@ -1,10 +1,10 @@
-//! Storage detectors (`SSDK002`, `SSDK008`, `SSDK009`).
+//! Storage detectors (`SSDK002`, `SSDK008`, `SSDK009`, `SSDK023`).
 
 use crate::category::Category;
 use crate::context::AnalysisContext;
 use crate::detector::Detector;
 use crate::finding::FindingSink;
-use crate::model::StorageTier;
+use crate::model::{StorageAccess, StorageTier};
 use crate::rule::{DetectorMeta, Reference, RuleId};
 use crate::severity::{Confidence, Severity};
 
@@ -192,6 +192,92 @@ impl Detector for MissingTtlExtension {
 }
 
 crate::declare_detector!(MissingTtlExtension);
+
+/// `SSDK023`: a ledger entry that grows without bound and can hit the entry cap.
+///
+/// Ledger entries have a maximum serialized size (`NetworkLimits::max_entry_size_bytes`,
+/// 64 KiB on mainnet). An entry that is read, appended to and written back grows on
+/// every call until writes to it start failing, permanently bricking that key.
+#[derive(Debug, Default)]
+pub struct UnboundedEntryGrowth;
+
+impl Detector for UnboundedEntryGrowth {
+    const META: DetectorMeta = DetectorMeta::new(
+        RuleId::new("SSDK023"),
+        "unbounded-entry-growth",
+        "A ledger entry grows without bound and can exceed the per-entry size limit.",
+    )
+    .severity(Severity::High)
+    .confidence(Confidence::Medium)
+    .category(Category::Storage)
+    .description(
+        "A single ledger entry may not exceed the per-entry size limit. An entry that \
+         is read, appended to and written back (or appended to inside a loop) grows \
+         on every call until the write is rejected, leaving the key unusable and any \
+         state it held unreachable.",
+    )
+    .tags(&["storage", "unbounded", "state-bloat"])
+    .references(&[Reference::new(
+        "Stellar docs: State archival",
+        "https://developers.stellar.org/docs/learn/encyclopedia/storage/state-archival",
+    )]);
+
+    fn detect<'a>(&self, ctx: &AnalysisContext<'a>, sink: &mut FindingSink<'a>) {
+        let model = ctx.model();
+        for (key, ops) in model.storage_ops_by_key() {
+            // Growth only matters for the durable tiers: a collection write to the
+            // `temporary` tier is disposable by design.
+            let writes = ops.iter().filter(|op| {
+                op.access.is_mutation()
+                    && op.collection_type.is_some()
+                    && matches!(op.tier, StorageTier::Persistent | StorageTier::Instance)
+            });
+            for write in writes {
+                // A write that replaces the value outright may well be a bounded
+                // collection, so only the append shape is reported: the same key is
+                // read in the same function, or the write sits inside a loop.
+                let appends = write.site.in_loop
+                    || ops.iter().any(|op| {
+                        op.site.function == write.site.function
+                            && matches!(
+                                op.access,
+                                StorageAccess::Get | StorageAccess::Has | StorageAccess::GetTtl
+                            )
+                    });
+                if !appends {
+                    continue;
+                }
+                let kind = write
+                    .collection_type
+                    .map(|collection| collection.name())
+                    .unwrap_or("collection");
+                let evidence = if write.site.in_loop {
+                    "is written inside a loop"
+                } else {
+                    "is read and written back in the same function"
+                };
+                sink.report(format!(
+                    "`{key}` stores a `{kind}` in the `{}` tier that {evidence}, so it grows without bound",
+                    write.tier
+                ))
+                .primary(write.site.file, write.site.span)
+                .in_function(write.site.function.clone())
+                .note(
+                    "A ledger entry is capped at the per-entry size limit (64 KiB on \
+                     mainnet); once the write exceeds it, the key can no longer be \
+                     updated and the state under it is unreachable.",
+                )
+                .help(
+                    "Store one entry per element under a prefix key, or cap the \
+                     collection and move overflow to separate entries.",
+                )
+                .emit();
+            }
+        }
+    }
+}
+
+crate::declare_detector!(UnboundedEntryGrowth);
 
 /// Whether a key variant name suggests state that must outlive its TTL.
 fn looks_long_lived(variant: &str) -> bool {

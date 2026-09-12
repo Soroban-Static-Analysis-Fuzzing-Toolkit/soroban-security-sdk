@@ -48,9 +48,22 @@ soroban-sec path/to/contract                       # human-readable report
 soroban-sec path/to/contract --wasm contract.wasm  # include the compiled code
 soroban-sec path/to/contract --format sarif -o out.sarif
 soroban-sec path/to/contract --fail-on high        # non-zero exit for CI
-soroban-sec --list-rules
+soroban-sec --list-rules                       # human-readable catalogue
+soroban-sec --list-rules --format json         # machine-readable catalogue
+soroban-sec --list-rules --format markdown      # the docs/rules.md source
 soroban-sec --explain SSDK001
 ```
+
+Adopting the scanner on an existing contract? Record the findings you already
+accept as a baseline, then fail CI only on new ones:
+
+```bash
+soroban-sec path/to/contract --write-baseline .soroban-sec.baseline
+soroban-sec path/to/contract --baseline .soroban-sec.baseline --fail-on high
+```
+
+The baseline is a plain-text list of finding fingerprints (one per line, `#`
+comments allowed), so it merges cleanly in review.
 
 `--format sarif` emits SARIF 2.1.0, so a run can be uploaded straight to GitHub
 code scanning and appear as annotations on the pull request:
@@ -63,6 +76,10 @@ code scanning and appear as annotations on the pull request:
 ```
 
 ## Rule catalogue
+
+Each rule carries a severity, confidence and description; severity, confidence,
+tags and references can be listed with `--explain RULE`, and the full generated
+reference lives in [`docs/rules.md`](docs/rules.md).
 
 | id | rule | category | default severity |
 |----|------|----------|------------------|
@@ -83,6 +100,8 @@ code scanning and appear as annotations on the pull request:
 | `SSDK020` | `wasm-storage-without-auth` | auth | high |
 | `SSDK021` | `contract-oversized` | resource-budget | high |
 | `SSDK022` | `wasm-start-function` | best-practice | medium |
+| `SSDK023` | `unbounded-entry-growth` | storage | high |
+| `SSDK024` | `unauthorized-deploy` | upgradeability | high |
 
 Severity can be overridden per rule in `.soroban-sec.toml` without changing the
 catalogue:

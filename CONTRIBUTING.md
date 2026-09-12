@@ -32,7 +32,10 @@ A step-by-step walkthrough lives in
 3. Re-export it from `src/detectors/mod.rs`.
 4. Add a fixture under `crates/soroban-security-sdk/tests/fixtures/` and list it in
    `tests/corpus.rs` with the **exact** set of rules it must produce.
-5. Run `cargo test --workspace`.
+5. Regenerate the rule reference:
+   `cargo run -p soroban-sec -- --list-rules --format markdown > docs/rules.md`.
+   `tests/catalogue.rs` fails if it is stale, so a rule cannot ship undocumented.
+6. Run `cargo test --workspace`.
 
 ## Rule ids
 
@@ -44,8 +47,12 @@ their own prefix.
 ## Working on other parts
 
 - **CLI** (`crates/soroban-sec`): keep the output stable — downstream CI parses
-  the JSON and SARIF formats. Add a test under `#[cfg(test)]` in `main.rs` for new
-  flags, and consider whether the change affects `--fail-on` exit codes.
+  the JSON, SARIF and catalogue formats. Add a test under `#[cfg(test)]` in
+  `main.rs` for new flags, and consider whether the change affects `--fail-on`
+  exit codes. The JSON catalogue's field names are asserted in
+  `tests/catalogue.rs`, so adding a field is a deliberate interface change.
+- **Docs** (`docs/`): `docs/rules.md` is generated, never hand-edited; edit the
+  detector's `DetectorMeta` and regenerate instead.
 - **Fuzzing harness** (`crates/soroban-sec-fuzz`): new behaviour needs a unit test
   with a deliberately buggy model, so shrinking is exercised, not just the happy
   path.

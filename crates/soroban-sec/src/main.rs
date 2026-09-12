@@ -26,6 +26,8 @@ enum Format {
     Json,
     /// SARIF 2.1.0 for code-scanning dashboards.
     Sarif,
+    /// Markdown rule catalogue. Only valid together with `--list-rules`.
+    Markdown,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -84,6 +86,14 @@ struct Cli {
     #[arg(short, long, value_name = "FILE")]
     output: Option<PathBuf>,
 
+    /// Accepted findings, by fingerprint. One per line; `#` starts a comment.
+    #[arg(long, value_name = "FILE")]
+    baseline: Option<PathBuf>,
+
+    /// Write the fingerprints of the current findings to `FILE` and exit successfully.
+    #[arg(long, value_name = "FILE")]
+    write_baseline: Option<PathBuf>,
+
     /// Exit non-zero when a finding at or above this severity exists.
     #[arg(long, value_enum)]
     fail_on: Option<FailOn>,
@@ -114,11 +124,22 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<ExitCode> {
     if cli.list_rules {
-        print_catalogue();
+        if matches!(cli.format, Format::Sarif) {
+            return Err(anyhow!(
+                "`--format sarif` cannot render the rule catalogue; use `text`, `json` or `markdown`"
+            ));
+        }
+        let rendered = render_catalogue(cli.format);
+        write_output(&cli, &rendered)?;
         return Ok(ExitCode::SUCCESS);
     }
     if let Some(rule) = &cli.explain {
         return explain(rule);
+    }
+    if matches!(cli.format, Format::Markdown) {
+        return Err(anyhow!(
+            "`--format markdown` only applies to `--list-rules`"
+        ));
     }
 
     let config = load_config(&cli)?;
@@ -130,13 +151,16 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Format::Text => render_text(&report, std::io::stdout().is_terminal()),
         Format::Json => render_json(&report)?,
         Format::Sarif => to_sarif_string(&report),
+        Format::Markdown => unreachable!("rejected before analysis"),
     };
-    match &cli.output {
-        Some(path) => {
-            std::fs::write(path, rendered)
-                .with_context(|| format!("writing `{}`", path.display()))?;
-        }
-        None => print!("{rendered}"),
+    write_output(&cli, &rendered)?;
+
+    // Writing a baseline always succeeds: the point is to record the current state
+    // so that later runs can fail on *new* findings only.
+    if let Some(path) = &cli.write_baseline {
+        let count = write_baseline(path, &report)?;
+        eprintln!("wrote {count} fingerprint(s) to `{}`", path.display());
+        return Ok(ExitCode::SUCCESS);
     }
 
     if let Some(threshold) = cli.fail_on {
@@ -145,6 +169,16 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// Write rendered output to `--output` or stdout.
+fn write_output(cli: &Cli, rendered: &str) -> Result<()> {
+    match &cli.output {
+        Some(path) => std::fs::write(path, rendered)
+            .with_context(|| format!("writing `{}`", path.display()))?,
+        None => print!("{rendered}"),
+    }
+    Ok(())
 }
 
 /// Load configuration from `--config`, a sibling `.soroban-sec.toml`, or defaults.
@@ -162,8 +196,45 @@ fn load_config(cli: &Cli) -> Result<AnalysisConfig> {
     if let Some(wasm) = &cli.wasm {
         config.wasm_path = Some(wasm.clone());
     }
+    if let Some(baseline) = &cli.baseline {
+        config.baseline.extend(read_baseline(baseline)?);
+    }
     config.include_tests |= cli.include_tests;
     Ok(config)
+}
+
+/// Read accepted fingerprints from a baseline file.
+///
+/// The format is deliberately plain: one fingerprint per line, blank lines and
+/// `#` comments ignored, so it merges cleanly in review.
+fn read_baseline(path: &Path) -> Result<Vec<String>> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("reading baseline `{}`", path.display()))?;
+    Ok(text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_string)
+        .collect())
+}
+
+/// Write the sorted, de-duplicated fingerprints of `report` to `path`.
+fn write_baseline(path: &Path, report: &AnalysisReport) -> Result<usize> {
+    let mut fingerprints: Vec<String> = report.findings.iter().map(Finding::fingerprint).collect();
+    fingerprints.sort();
+    fingerprints.dedup();
+
+    let mut contents = String::from(
+        "# soroban-sec baseline: findings listed here are accepted and not reported.\n\
+         # Regenerate with `soroban-sec --write-baseline .soroban-sec.baseline`.\n",
+    );
+    for fingerprint in &fingerprints {
+        contents.push_str(fingerprint);
+        contents.push('\n');
+    }
+    std::fs::write(path, contents)
+        .with_context(|| format!("writing baseline `{}`", path.display()))?;
+    Ok(fingerprints.len())
 }
 
 /// Find a `.soroban-sec.toml` next to the analysed path.
@@ -177,18 +248,87 @@ fn discover_config(path: &Path) -> Option<PathBuf> {
     candidate.is_file().then_some(candidate)
 }
 
-fn print_catalogue() {
+/// Render the rule catalogue in the requested format.
+fn render_catalogue(format: Format) -> String {
     let registry = DetectorRegistry::from_inventory();
-    println!("{} rules\n", registry.len());
+    match format {
+        Format::Json => catalogue_json(&registry),
+        Format::Markdown => catalogue_markdown(&registry),
+        _ => catalogue_text(&registry),
+    }
+}
+
+fn catalogue_text(registry: &DetectorRegistry) -> String {
+    let mut out = format!("{} rules\n\n", registry.len());
     for meta in registry.metas() {
-        println!(
-            "{}  {:<4}  {:<38}  {}",
+        out.push_str(&format!(
+            "{}  {:<4}  {:<38}  {}\n",
             meta.id,
             meta.severity.badge(),
             meta.name,
             meta.summary
-        );
+        ));
     }
+    out
+}
+
+/// The catalogue as JSON. Field names come from `DetectorMeta`'s serialisation and
+/// are asserted by `tests/catalogue.rs`, so they are a deliberate interface.
+fn catalogue_json(registry: &DetectorRegistry) -> String {
+    let rules = registry.metas();
+    serde_json::to_string_pretty(&rules).expect("detector metadata always serialises to JSON")
+}
+
+/// The catalogue as Markdown, committed as `docs/rules.md` and kept in sync by
+/// `tests/catalogue.rs`.
+fn catalogue_markdown(registry: &DetectorRegistry) -> String {
+    let mut out = String::new();
+    out.push_str("# Rule catalogue\n\n");
+    out.push_str(&format!(
+        "soroban-sec ships {} rules. This file is generated from detector metadata.\n\
+         Regenerate it with `cargo run -p soroban-sec -- --list-rules --format markdown > docs/rules.md`.\n\n",
+        registry.len()
+    ));
+    out.push_str("| id | rule | severity | confidence | category | default |\n");
+    out.push_str("|----|------|----------|------------|----------|---------|\n");
+    for meta in registry.metas() {
+        out.push_str(&format!(
+            "| `{}` | `{}` | {} | {} | {} | {} |\n",
+            meta.id,
+            meta.name,
+            meta.severity.as_str(),
+            meta.confidence.as_str(),
+            meta.category.as_str(),
+            if meta.default_enabled { "on" } else { "off" },
+        ));
+    }
+    for meta in registry.metas() {
+        out.push_str(&format!("\n## {} - `{}`\n\n", meta.id, meta.name));
+        out.push_str(&format!(
+            "- **Severity:** {}\n- **Confidence:** {}\n- **Category:** {}\n",
+            meta.severity.as_str(),
+            meta.confidence.as_str(),
+            meta.category.as_str(),
+        ));
+        if meta.requires_wasm {
+            out.push_str("- **Requires:** a compiled `.wasm` module\n");
+        }
+        out.push_str(&format!("\n{}\n", meta.summary));
+        if !meta.description.is_empty() {
+            out.push_str(&format!("\n{}\n", meta.description));
+        }
+        if !meta.tags.is_empty() {
+            let tags: Vec<String> = meta.tags.iter().map(|tag| format!("`{tag}`")).collect();
+            out.push_str(&format!("\n**Tags:** {}\n", tags.join(", ")));
+        }
+        if !meta.references.is_empty() {
+            out.push_str("\n**References:**\n");
+            for reference in meta.references {
+                out.push_str(&format!("- [{}]({})\n", reference.label, reference.url));
+            }
+        }
+    }
+    out
 }
 
 fn explain(rule: &str) -> Result<ExitCode> {
@@ -310,5 +450,25 @@ mod tests {
     #[test]
     fn discover_config_handles_files_and_directories() {
         assert!(discover_config(Path::new("/nonexistent/path")).is_none());
+    }
+
+    #[test]
+    fn read_baseline_ignores_comments_and_blanks() {
+        let path = std::env::temp_dir().join("soroban-sec-read-baseline-test.txt");
+        std::fs::write(&path, "# a comment\n\nabc123\n  def456  \n").unwrap();
+        let fingerprints = read_baseline(&path).unwrap();
+        assert_eq!(
+            fingerprints,
+            vec!["abc123".to_string(), "def456".to_string()]
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn catalogue_is_rendered_in_every_format() {
+        let registry = DetectorRegistry::from_inventory();
+        assert!(catalogue_text(&registry).contains("SSDK001"));
+        assert!(catalogue_json(&registry).contains("\"id\": \"SSDK001\""));
+        assert!(catalogue_markdown(&registry).contains("## SSDK001"));
     }
 }

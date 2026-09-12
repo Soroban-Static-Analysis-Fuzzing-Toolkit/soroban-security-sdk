@@ -25,6 +25,8 @@
 //! | `SSDK020` | `wasm-storage-without-auth` | auth |
 //! | `SSDK021` | `contract-oversized` | resource-budget |
 //! | `SSDK022` | `wasm-start-function` | best-practice |
+//! | `SSDK023` | `unbounded-entry-growth` | storage |
+//! | `SSDK024` | `unauthorized-deploy` | upgradeability |
 
 mod arithmetic;
 mod auth;
@@ -37,9 +39,13 @@ pub use arithmetic::{
     LossyCast, OverflowChecksDisabled, UncheckedTokenArithmetic, WrappingArithmetic,
 };
 pub use auth::{CheckAuthWithoutVerification, MissingRequireAuth};
-pub use misc::{PanicOnCallerInput, PredictableRandomness, UnauthorizedUpgrade};
+pub use misc::{
+    PanicOnCallerInput, PredictableRandomness, UnauthorizedDeploy, UnauthorizedUpgrade,
+};
 pub use resources::{ResourceBudgetExceeded, UnboundedLoopOverStorage};
-pub use storage::{MissingTtlExtension, StorageTierConfusion, TemporaryStorageWrite};
+pub use storage::{
+    MissingTtlExtension, StorageTierConfusion, TemporaryStorageWrite, UnboundedEntryGrowth,
+};
 pub use wasm::{ContractOversized, WasmStartFunction, WasmStorageWithoutAuth};
 
 use crate::model::ContractModel;
