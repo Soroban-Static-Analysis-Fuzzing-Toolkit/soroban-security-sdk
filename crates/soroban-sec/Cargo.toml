@@ -1,0 +1,22 @@
+[package]
+name = "soroban-sec"
+description = "Command-line interface for the soroban-security-sdk static analyser."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "soroban-sec"
+path = "src/main.rs"
+
+[dependencies]
+soroban-security-sdk = { workspace = true }
+clap = { version = "4", features = ["derive", "wrap_help"] }
+anyhow = "1"
+serde_json = { workspace = true }
