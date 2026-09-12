@@ -82,7 +82,9 @@ impl PackageInfo {
                 .and_then(|section| section.as_table())
                 .is_some_and(|entries| {
                     entries.keys().any(|key| {
-                        key == "soroban-sdk" || key == "soroban_sdk" || key.starts_with("soroban-sdk")
+                        key == "soroban-sdk"
+                            || key == "soroban_sdk"
+                            || key.starts_with("soroban-sdk")
                     })
                 })
         });
@@ -231,7 +233,8 @@ codegen-units = 1
 
     #[test]
     fn edition_may_be_a_number() {
-        let info = PackageInfo::parse("[package]\nname = \"x\"\nedition = 2024\n", "Cargo.toml").unwrap();
+        let info =
+            PackageInfo::parse("[package]\nname = \"x\"\nedition = 2024\n", "Cargo.toml").unwrap();
         assert_eq!(info.edition.as_deref(), Some("2024"));
     }
 }

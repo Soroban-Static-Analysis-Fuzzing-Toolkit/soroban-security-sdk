@@ -88,6 +88,7 @@ pub mod model;
 pub mod prelude;
 pub mod registry;
 pub mod rule;
+pub mod sarif;
 pub mod severity;
 pub mod source;
 pub mod span;
@@ -102,21 +103,22 @@ pub use crate::budget::{
     BudgetAxis, BudgetEstimate, BudgetReport, BudgetViolation, EntrypointBudget,
 };
 pub use crate::category::Category;
+pub use crate::config::{AnalysisConfig, CostModel, NetworkLimits, RuleConfig};
 pub use crate::context::AnalysisContext;
 pub use crate::detector::{Detector, DynDetector};
-pub use crate::manifest::PackageInfo;
-pub use crate::registry::{DetectorRegistration, DetectorRegistry};
-pub use crate::config::{AnalysisConfig, CostModel, NetworkLimits, RuleConfig};
 pub use crate::error::{Error, Result};
 pub use crate::finding::{Edit, Finding, FindingBuilder, FindingSink, Fix, Location};
-pub use crate::fix::{apply_edits, FixPlan, FilePatch};
-pub use crate::rule::{DetectorMeta, Reference, RuleId};
-pub use crate::severity::{Confidence, Severity};
-pub use crate::source::{FileId, ParseFailure, SourceFile, SourceMap};
+pub use crate::fix::{apply_edits, FilePatch, FixPlan};
+pub use crate::manifest::PackageInfo;
 pub use crate::model::{
     AuthCheck, AuthKind, Contract, ContractModel, ContractType, Entrypoint, LoopBound, LoopKind,
     LoopSite, PanicKind, PanicSite, Site, StorageAccess, StorageOp, StorageTier,
 };
+pub use crate::registry::{DetectorRegistration, DetectorRegistry};
+pub use crate::rule::{DetectorMeta, Reference, RuleId};
+pub use crate::sarif::{to_sarif, to_sarif_string};
+pub use crate::severity::{Confidence, Severity};
+pub use crate::source::{FileId, ParseFailure, SourceFile, SourceMap};
 pub use crate::span::{SourceSpan, Spanned};
 pub use crate::suppression::Suppression;
 pub use crate::syntax::{FunctionView, Param, ParamKind};

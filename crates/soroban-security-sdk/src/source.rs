@@ -345,7 +345,11 @@ mod tests {
         let span = SourceSpan::of(&file.syntax().items[0]);
         let snippet = file.snippet(span).unwrap();
         assert!(!snippet.contains('\n'));
-        assert!(snippet.chars().count() <= 161, "{}", snippet.chars().count());
+        assert!(
+            snippet.chars().count() <= 161,
+            "{}",
+            snippet.chars().count()
+        );
     }
 
     #[test]

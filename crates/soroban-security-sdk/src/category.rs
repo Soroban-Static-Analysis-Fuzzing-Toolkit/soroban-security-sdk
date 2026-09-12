@@ -138,7 +138,10 @@ mod tests {
     #[test]
     fn category_aliases() {
         assert_eq!("AUTH".parse::<Category>().unwrap(), Category::Auth);
-        assert_eq!("resource_budget".parse::<Category>().unwrap(), Category::ResourceBudget);
+        assert_eq!(
+            "resource_budget".parse::<Category>().unwrap(),
+            Category::ResourceBudget
+        );
         assert!("banana".parse::<Category>().is_err());
     }
 }

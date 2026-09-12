@@ -39,18 +39,28 @@ pub fn call_args(expr: &Expr) -> Vec<&Expr> {
 
 /// The nth argument of a call, references stripped.
 pub fn arg(expr: &Expr, index: usize) -> Option<&Expr> {
-    call_args(expr).get(index).map(|argument| unwrap_refs(argument))
+    call_args(expr)
+        .get(index)
+        .map(|argument| unwrap_refs(argument))
 }
 
 /// Whether the expression is an integer literal (`1`, `1_000u64`).
 pub fn is_int_literal(expr: &Expr) -> bool {
-    matches!(unwrap_refs(expr), Expr::Lit(syn::ExprLit { lit: Lit::Int(_), .. }))
+    matches!(
+        unwrap_refs(expr),
+        Expr::Lit(syn::ExprLit {
+            lit: Lit::Int(_),
+            ..
+        })
+    )
 }
 
 /// Value of an integer literal, including a leading unary minus.
 pub fn literal_int(expr: &Expr) -> Option<i128> {
     match unwrap_refs(expr) {
-        Expr::Lit(syn::ExprLit { lit: Lit::Int(int), .. }) => parse_int_literal(int),
+        Expr::Lit(syn::ExprLit {
+            lit: Lit::Int(int), ..
+        }) => parse_int_literal(int),
         Expr::Unary(unary) if matches!(unary.op, UnOp::Neg(_)) => {
             literal_int(&unary.expr).map(|value| -value)
         }
@@ -97,13 +107,22 @@ pub fn is_unit(expr: &Expr) -> bool {
 
 /// Whether the expression is a literal string.
 pub fn is_string_literal(expr: &Expr) -> bool {
-    matches!(unwrap_refs(expr), Expr::Lit(syn::ExprLit { lit: Lit::Str(_), .. }))
+    matches!(
+        unwrap_refs(expr),
+        Expr::Lit(syn::ExprLit {
+            lit: Lit::Str(_),
+            ..
+        })
+    )
 }
 
 /// The string value of a literal, if it is one.
 pub fn literal_string(expr: &Expr) -> Option<String> {
     match unwrap_refs(expr) {
-        Expr::Lit(syn::ExprLit { lit: Lit::Str(value), .. }) => Some(value.value()),
+        Expr::Lit(syn::ExprLit {
+            lit: Lit::Str(value),
+            ..
+        }) => Some(value.value()),
         _ => None,
     }
 }
@@ -127,7 +146,10 @@ mod tests {
         let expr = parse("env.storage().persistent().set(&key, &value)");
         assert_eq!(method_name(&expr).as_deref(), Some("set"));
         assert_eq!(call_args(&expr).len(), 2);
-        assert_eq!(super::super::paths::canonical(arg(&expr, 0).unwrap()), "key");
+        assert_eq!(
+            super::super::paths::canonical(arg(&expr, 0).unwrap()),
+            "key"
+        );
     }
 
     #[test]
@@ -144,7 +166,10 @@ mod tests {
     fn identifies_idents_and_strings() {
         assert!(is_ident_named(&parse("amount"), "amount"));
         assert!(!is_ident_named(&parse("other"), "amount"));
-        assert_eq!(literal_string(&parse("\"hello\"")).as_deref(), Some("hello"));
+        assert_eq!(
+            literal_string(&parse("\"hello\"")).as_deref(),
+            Some("hello")
+        );
         assert!(is_unit(&parse("()")));
     }
 

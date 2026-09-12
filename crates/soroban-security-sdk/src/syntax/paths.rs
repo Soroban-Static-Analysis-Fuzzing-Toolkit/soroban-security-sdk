@@ -40,7 +40,9 @@ pub fn path_ends_with(path: &Path, expected: &[&str]) -> bool {
         return false;
     }
     let tail = &segments[segments.len() - expected.len()..];
-    tail.iter().zip(expected).all(|(actual, want)| actual == want)
+    tail.iter()
+        .zip(expected)
+        .all(|(actual, want)| actual == want)
 }
 
 /// Whether a path contains a segment with the given name.
@@ -225,7 +227,9 @@ pub fn integer_type_of_name(name: &str) -> Option<IntegerTy> {
 /// Integer type of a syntax type, if it is an integer.
 pub fn integer_type_of(ty: &Type) -> Option<IntegerTy> {
     match ty {
-        Type::Path(path) => last_segment(&path.path).and_then(|ident| integer_type_of_name(&ident.to_string())),
+        Type::Path(path) => {
+            last_segment(&path.path).and_then(|ident| integer_type_of_name(&ident.to_string()))
+        }
         Type::Paren(paren) => integer_type_of(&paren.elem),
         Type::Group(group) => integer_type_of(&group.elem),
         _ => None,

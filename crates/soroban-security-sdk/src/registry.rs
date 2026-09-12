@@ -30,10 +30,7 @@ pub struct DetectorRegistration {
 
 impl DetectorRegistration {
     /// Build a registration.
-    pub const fn new(
-        factory: fn() -> Box<dyn DynDetector>,
-        meta: fn() -> DetectorMeta,
-    ) -> Self {
+    pub const fn new(factory: fn() -> Box<dyn DynDetector>, meta: fn() -> DetectorMeta) -> Self {
         DetectorRegistration { factory, meta }
     }
 
@@ -112,11 +109,7 @@ impl DetectorRegistry {
     }
 
     /// Register a detector through a factory, for detectors that are not `Default`.
-    pub fn register_factory(
-        &mut self,
-        meta: DetectorMeta,
-        factory: fn() -> Box<dyn DynDetector>,
-    ) {
+    pub fn register_factory(&mut self, meta: DetectorMeta, factory: fn() -> Box<dyn DynDetector>) {
         self.push(Entry {
             meta,
             build: Box::new(factory),
@@ -131,7 +124,11 @@ impl DetectorRegistry {
     }
 
     fn push(&mut self, entry: Entry) {
-        if let Some(existing) = self.entries.iter().find(|item| item.meta.id == entry.meta.id) {
+        if let Some(existing) = self
+            .entries
+            .iter()
+            .find(|item| item.meta.id == entry.meta.id)
+        {
             if !self.duplicates.contains(&existing.meta.id) {
                 self.duplicates.push(existing.meta.id.clone());
             }
@@ -152,7 +149,10 @@ impl DetectorRegistry {
 
     /// Look up metadata by rule id.
     pub fn meta(&self, id: &RuleId) -> Option<&DetectorMeta> {
-        self.entries.iter().find(|entry| &entry.meta.id == id).map(|entry| &entry.meta)
+        self.entries
+            .iter()
+            .find(|entry| &entry.meta.id == id)
+            .map(|entry| &entry.meta)
     }
 
     /// Rule ids that were registered more than once, keeping the first registration.
@@ -260,7 +260,11 @@ mod tests {
         registry.register::<Alpha>();
         registry.register::<Beta>();
         registry.sort();
-        let ids: Vec<&str> = registry.metas().iter().map(|meta| meta.id.as_str()).collect();
+        let ids: Vec<&str> = registry
+            .metas()
+            .iter()
+            .map(|meta| meta.id.as_str())
+            .collect();
         assert_eq!(ids, vec!["SSDK901", "SSDK902"]);
         assert_eq!(registry.len(), 2);
         assert!(!registry.is_empty());
@@ -328,7 +332,9 @@ mod tests {
     fn detector_instances_are_constructible() {
         let mut registry = DetectorRegistry::empty();
         registry.register::<Alpha>();
-        registry.register_factory(Beta::META.clone(), || -> Box<dyn DynDetector> { Box::new(Beta) });
+        registry.register_factory(Beta::META.clone(), || -> Box<dyn DynDetector> {
+            Box::new(Beta)
+        });
         registry.register_value(Beta);
         assert_eq!(registry.detectors().len(), 2);
         assert_eq!(registry.meta(&RuleId::new("SSDK901")).unwrap().name, "beta");

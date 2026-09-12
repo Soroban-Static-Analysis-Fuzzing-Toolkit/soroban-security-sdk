@@ -85,17 +85,17 @@ pub struct TemporaryStorageWrite;
 impl Detector for TemporaryStorageWrite {
     const META: DetectorMeta = DetectorMeta::new(
         RuleId::new("SSDK008"),
-        "temporary-storage-write",
-        "A mutation writes long-lived-looking state to `temporary` storage.",
+        "temporary-storage-for-durable-data",
+        "A long-lived-looking key is stored in the `temporary` tier.",
     )
-    .severity(Severity::Medium)
-    .confidence(Confidence::Low)
+    .severity(Severity::High)
+    .confidence(Confidence::Medium)
     .category(Category::Storage)
     .description(
-        "`temporary` entries are deleted forever once their time to live expires; \
-         they cannot be restored the way persistent entries can. Using the tier for \
-         keys that look like balances, configuration or ownership risks permanent \
-         state loss.",
+        "`temporary` entries are deleted forever once their time to live expires; they \
+         cannot be restored the way persistent entries can. Using the tier for keys \
+         named like balances, configuration or ownership risks permanent state loss, \
+         whereas caches and locks are exactly what it is for.",
     )
     .tags(&["storage", "temporary", "ttl"])
     .references(&[Reference::new(
@@ -109,31 +109,25 @@ impl Detector for TemporaryStorageWrite {
                 continue;
             }
             let variant = op.key_variant().unwrap_or_default();
-            let critical = looks_long_lived(variant);
-            let mut builder = sink
-                .report(format!(
-                    "`{}` writes the `temporary` tier, whose entries are deleted on expiry",
-                    op.describe()
-                ))
-                .primary(op.site.file, op.site.span)
-                .in_function(op.site.function.clone());
-            builder = if critical {
-                builder
-                    .severity(Severity::High)
-                    .confidence(Confidence::High)
-                    .note(format!(
-                        "The key variant `{variant}` looks like long-lived state, which \
-                         temporary storage cannot preserve."
-                    ))
-            } else {
-                builder.confidence(Confidence::Low).note(
-                    "Temporary storage is only safe for data that can be regenerated or \
-                     discarded.",
-                )
-            };
-            builder
-                .help("Use `persistent` storage and extend its TTL for anything that must survive.")
-                .emit();
+            // A cache, lock or other disposable value is exactly what the tier is for,
+            // so only durable-looking keys are reported.
+            if !looks_long_lived(variant) {
+                continue;
+            }
+            sink.report(format!(
+                "`{}` stores `{variant}` in the `temporary` tier, which is deleted on expiry",
+                op.describe()
+            ))
+            .severity(Severity::High)
+            .confidence(Confidence::Medium)
+            .primary(op.site.file, op.site.span)
+            .in_function(op.site.function.clone())
+            .note(
+                "Temporary entries are deleted forever once their TTL lapses, unlike \
+                 persistent entries, which can be restored.",
+            )
+            .help("Use `persistent` storage and extend its TTL for anything that must survive.")
+            .emit();
         }
     }
 }
@@ -174,9 +168,9 @@ impl Detector for MissingTtlExtension {
                 continue;
             }
             let writes_persistent = model.has_transitive(&entrypoint.name, |name| {
-                model.storage_ops_in(name).any(|op| {
-                    op.access.is_mutation() && op.tier == StorageTier::Persistent
-                })
+                model
+                    .storage_ops_in(name)
+                    .any(|op| op.access.is_mutation() && op.tier == StorageTier::Persistent)
             });
             if !writes_persistent || model.has_transitive_ttl_extension(&entrypoint.name) {
                 continue;

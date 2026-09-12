@@ -128,10 +128,7 @@ impl BudgetEstimate {
 
     /// Whether the axis certainly exceeds `limit`, whatever the runtime does.
     pub fn certainly_exceeds(&self, limit: u64) -> bool {
-        self.lower_bound > limit
-            || self
-                .bounded_upper_bound
-                .is_some_and(|upper| upper > limit)
+        self.lower_bound > limit || self.bounded_upper_bound.is_some_and(|upper| upper > limit)
     }
 
     /// Whether the best-effort figure exceeds `limit`.
@@ -316,26 +313,22 @@ fn build_entrypoint(
     estimator: &CostModel,
 ) -> EntrypointBudget {
     let mut notes = Vec::new();
-    let (instructions, instructions_from_wasm) = match wasm {
-        Some(module) => match module
-            .exports
-            .iter()
-            .find(|export| export.kind == crate::wasm::ExportKind::Function && export.name == name)
-        {
-            Some(export) => (
-                instruction_estimate(module, export.index, estimator),
-                true,
-            ),
+    let (instructions, instructions_from_wasm) =
+        match wasm {
+            Some(module) => match module.exports.iter().find(|export| {
+                export.kind == crate::wasm::ExportKind::Function && export.name == name
+            }) {
+                Some(export) => (instruction_estimate(module, export.index, estimator), true),
+                None => (
+                    BudgetEstimate::unknown("entrypoint is not exported from the wasm module"),
+                    false,
+                ),
+            },
             None => (
-                BudgetEstimate::unknown("entrypoint is not exported from the wasm module"),
+                BudgetEstimate::unknown("no wasm module provided; build with --target wasm32"),
                 false,
             ),
-        },
-        None => (
-            BudgetEstimate::unknown("no wasm module provided; build with --target wasm32"),
-            false,
-        ),
-    };
+        };
     if instructions.unbounded {
         if let Some(reason) = &instructions.reason {
             notes.push(format!("instructions: {reason}"));
@@ -456,8 +449,7 @@ impl Usage {
             BudgetEstimate::unbounded(
                 lower_bound,
                 estimate,
-                self.reason
-                    .unwrap_or_else(|| "unbounded loop".to_string()),
+                self.reason.unwrap_or_else(|| "unbounded loop".to_string()),
             )
         }
     }
@@ -467,7 +459,11 @@ impl Usage {
 ///
 /// `Some(multiplier)` when every enclosing loop has a literal bound, `None` when at
 /// least one loop's trip count is unknown.
-fn loop_weight(model: &ContractModel, function: &str, span: crate::span::SourceSpan) -> Option<u64> {
+fn loop_weight(
+    model: &ContractModel,
+    function: &str,
+    span: crate::span::SourceSpan,
+) -> Option<u64> {
     let mut multiplier: u64 = 1;
     let mut bounded = true;
     for loop_site in model.loops.iter().filter(|loop_site| {
@@ -714,7 +710,10 @@ impl Token {
         let entrypoint = report.entrypoint("ping").unwrap();
         assert!(entrypoint.instructions_from_wasm);
         assert!(!entrypoint.instructions.unbounded);
-        assert_eq!(entrypoint.instructions.bounded_upper_bound, Some(entrypoint.instructions.lower_bound));
+        assert_eq!(
+            entrypoint.instructions.bounded_upper_bound,
+            Some(entrypoint.instructions.lower_bound)
+        );
         assert_eq!(entrypoint.memory_bytes, Some(65_536));
         assert_eq!(report.module.as_ref().unwrap().exported_functions, 1);
     }
@@ -817,12 +816,8 @@ impl Token {
         )
         .unwrap();
         let module = WasmModule::parse("contract.wasm", &bytes).unwrap();
-        let report = BudgetReport::estimate(
-            &model,
-            Some(&module),
-            limits,
-            CostModel::conservative(),
-        );
+        let report =
+            BudgetReport::estimate(&model, Some(&module), limits, CostModel::conservative());
         let violation = report
             .entrypoint("heavy")
             .unwrap()
@@ -843,16 +838,14 @@ impl Token {
 }
 "#,
         );
-        let bytes = wat::parse_str("(module (memory 100) (func $big) (export \"big\" (func $big)))").unwrap();
+        let bytes =
+            wat::parse_str("(module (memory 100) (func $big) (export \"big\" (func $big)))")
+                .unwrap();
         let module = WasmModule::parse("contract.wasm", &bytes).unwrap();
         let mut limits = NetworkLimits::mainnet();
         limits.max_memory_bytes = 1024;
-        let report = BudgetReport::estimate(
-            &model,
-            Some(&module),
-            limits,
-            CostModel::conservative(),
-        );
+        let report =
+            BudgetReport::estimate(&model, Some(&module), limits, CostModel::conservative());
         let violation = report
             .entrypoint("big")
             .unwrap()
@@ -881,7 +874,10 @@ impl Token {
         let entrypoint = report.entrypoint("f").unwrap();
         assert!(entrypoint.instructions.unbounded);
         assert_eq!(entrypoint.instructions.lower_bound, 0);
-        assert!(!entrypoint.violations.iter().any(|v| v.axis == BudgetAxis::Instructions));
+        assert!(!entrypoint
+            .violations
+            .iter()
+            .any(|v| v.axis == BudgetAxis::Instructions));
     }
 
     #[test]

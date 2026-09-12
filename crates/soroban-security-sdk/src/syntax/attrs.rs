@@ -9,7 +9,10 @@ use syn::Attribute;
 
 /// Name of an attribute: the last path segment, e.g. `contractimpl`.
 pub fn attr_name(attr: &Attribute) -> Option<String> {
-    attr.path().segments.last().map(|segment| segment.ident.to_string())
+    attr.path()
+        .segments
+        .last()
+        .map(|segment| segment.ident.to_string())
 }
 
 /// Whether any attribute is named `name`.
@@ -19,7 +22,9 @@ pub fn has_attr(attrs: &[Attribute], name: &str) -> bool {
 
 /// Find the first attribute named `name`.
 pub fn find_attr<'a>(attrs: &'a [Attribute], name: &str) -> Option<&'a Attribute> {
-    attrs.iter().find(|attr| attr_name(attr).as_deref() == Some(name))
+    attrs
+        .iter()
+        .find(|attr| attr_name(attr).as_deref() == Some(name))
 }
 
 /// Whether any attribute is named one of `names`.
@@ -81,9 +86,7 @@ pub fn doc_lines(attrs: &[Attribute]) -> Vec<String> {
 
 /// Whether a path qualified name contains a segment.
 pub fn path_has_segment(path: &syn::Path, name: &str) -> bool {
-    path.segments
-        .iter()
-        .any(|segment| segment.ident == name)
+    path.segments.iter().any(|segment| segment.ident == name)
 }
 
 /// Whether the attribute's token stream contains the identifier `test`.
@@ -133,7 +136,9 @@ mod tests {
     fn detects_test_items() {
         assert!(is_test(&attrs_of("#[test]\nfn f() {}")));
         assert!(is_test(&attrs_of("#[cfg(test)]\nfn f() {}")));
-        assert!(is_test(&attrs_of("#[cfg(all(test, feature = \"x\"))]\nfn f() {}")));
+        assert!(is_test(&attrs_of(
+            "#[cfg(all(test, feature = \"x\"))]\nfn f() {}"
+        )));
         assert!(is_test(&attrs_of("#[tokio::test]\nfn f() {}")));
         assert!(!is_test(&attrs_of(
             "#[cfg(feature = \"testing\")]\nfn f() {}"

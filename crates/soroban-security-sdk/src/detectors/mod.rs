@@ -15,19 +15,23 @@
 //! | `SSDK005` | `wrapping-arithmetic` | arithmetic |
 //! | `SSDK006` | `unbounded-loop-over-storage` | resource-budget |
 //! | `SSDK007` | `resource-budget-exceeded` | resource-budget |
-//! | `SSDK008` | `temporary-storage-write` | storage |
+//! | `SSDK008` | `temporary-storage-for-durable-data` | storage |
 //! | `SSDK009` | `missing-ttl-extension` | storage |
 //! | `SSDK010` | `check-auth-without-verification` | access-control |
 //! | `SSDK011` | `predictable-randomness` | randomness |
 //! | `SSDK012` | `unauthorized-upgrade` | upgradeability |
 //! | `SSDK013` | `panic-on-caller-input` | panic-safety |
 //! | `SSDK014` | `overflow-checks-disabled` | arithmetic |
+//! | `SSDK020` | `wasm-storage-without-auth` | auth |
+//! | `SSDK021` | `contract-oversized` | resource-budget |
+//! | `SSDK022` | `wasm-start-function` | best-practice |
 
 mod arithmetic;
 mod auth;
 mod misc;
 mod resources;
 mod storage;
+mod wasm;
 
 pub use arithmetic::{
     LossyCast, OverflowChecksDisabled, UncheckedTokenArithmetic, WrappingArithmetic,
@@ -36,6 +40,7 @@ pub use auth::{CheckAuthWithoutVerification, MissingRequireAuth};
 pub use misc::{PanicOnCallerInput, PredictableRandomness, UnauthorizedUpgrade};
 pub use resources::{ResourceBudgetExceeded, UnboundedLoopOverStorage};
 pub use storage::{MissingTtlExtension, StorageTierConfusion, TemporaryStorageWrite};
+pub use wasm::{ContractOversized, WasmStartFunction, WasmStorageWithoutAuth};
 
 use crate::model::ContractModel;
 

@@ -333,7 +333,12 @@ pub fn collect_from_items<'a>(
                     let syn::TraitItem::Fn(func) = inner else {
                         continue;
                     };
-                    let syn::TraitItemFn { attrs, sig, default, .. } = func;
+                    let syn::TraitItemFn {
+                        attrs,
+                        sig,
+                        default,
+                        ..
+                    } = func;
                     out.push(FunctionView {
                         file: file_id,
                         container: Container::TraitDeclaration,
@@ -423,10 +428,15 @@ impl TokenInterface for Token {
         let collected = collect(&file, FileId(0));
         assert_eq!(collected.len(), 1);
         assert!(collected[0].in_contract_impl());
-        assert!(!collected[0].is_entrypoint(), "non-pub trait method is not exported");
+        assert!(
+            !collected[0].is_entrypoint(),
+            "non-pub trait method is not exported"
+        );
         assert_eq!(collected[0].contract_name().as_deref(), Some("Token"));
         assert_eq!(
-            collected[0].trait_path.map(|path| path.segments.last().unwrap().ident.to_string()),
+            collected[0]
+                .trait_path
+                .map(|path| path.segments.last().unwrap().ident.to_string()),
             Some("TokenInterface".to_string())
         );
     }
@@ -460,7 +470,10 @@ impl TokenInterface for Token {
         let source = "fn f(env: Env) -> Result<i128, Error> {\n    Ok(1)\n}\n";
         let file = syn::parse_file(source).unwrap();
         let function = &collect(&file, FileId(0))[0];
-        assert_eq!(function.return_type().as_deref(), Some("Result<i128,Error>"));
+        assert_eq!(
+            function.return_type().as_deref(),
+            Some("Result<i128,Error>")
+        );
         assert_eq!(function.span().start_line, 1);
         assert!(function.body_span().unwrap().is_multiline());
         assert!(function.full_span().is_known());

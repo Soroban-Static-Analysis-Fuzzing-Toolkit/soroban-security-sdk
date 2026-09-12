@@ -38,12 +38,7 @@ impl SourceSpan {
     };
 
     /// Build a span from 1-based positions.
-    pub const fn new(
-        start_line: u32,
-        start_column: u32,
-        end_line: u32,
-        end_column: u32,
-    ) -> Self {
+    pub const fn new(start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> Self {
         SourceSpan {
             start_line,
             start_column,
@@ -135,20 +130,18 @@ impl SourceSpan {
         if !other.is_known() {
             return self;
         }
-        let (start_line, start_column) = if (other.start_line, other.start_column)
-            < (self.start_line, self.start_column)
-        {
-            (other.start_line, other.start_column)
-        } else {
-            (self.start_line, self.start_column)
-        };
-        let (end_line, end_column) = if (other.end_line, other.end_column)
-            > (self.end_line, self.end_column)
-        {
-            (other.end_line, other.end_column)
-        } else {
-            (self.end_line, self.end_column)
-        };
+        let (start_line, start_column) =
+            if (other.start_line, other.start_column) < (self.start_line, self.start_column) {
+                (other.start_line, other.start_column)
+            } else {
+                (self.start_line, self.start_column)
+            };
+        let (end_line, end_column) =
+            if (other.end_line, other.end_column) > (self.end_line, self.end_column) {
+                (other.end_line, other.end_column)
+            } else {
+                (self.end_line, self.end_column)
+            };
         SourceSpan::new(start_line, start_column, end_line, end_column)
     }
 }
@@ -238,7 +231,10 @@ mod tests {
             _ => unreachable!(),
         };
         let span = SourceSpan::of(&func.block);
-        assert!(span.is_known(), "span should be known with span-locations on");
+        assert!(
+            span.is_known(),
+            "span should be known with span-locations on"
+        );
         assert_eq!(span.start_line, 1);
         assert!(span.is_multiline(), "block spans several lines: {span}");
     }

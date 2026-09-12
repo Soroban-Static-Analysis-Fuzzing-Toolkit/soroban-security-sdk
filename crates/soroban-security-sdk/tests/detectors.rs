@@ -36,7 +36,10 @@ fn catalogue_registers_every_builtin_rule() {
             "rule {id} should be registered"
         );
     }
-    assert!(registry.duplicates().is_empty(), "no rule ids should collide");
+    assert!(
+        registry.duplicates().is_empty(),
+        "no rule ids should collide"
+    );
 }
 
 #[test]
@@ -317,7 +320,11 @@ impl Token {
 }
 "#,
     );
-    assert!(report.is_empty(), "unexpected findings: {:#?}", report.findings);
+    assert!(
+        report.is_empty(),
+        "unexpected findings: {:#?}",
+        report.findings
+    );
     assert_eq!(report.summary(), "no findings");
 }
 

@@ -1,0 +1,71 @@
+name: "soroban-sec"
+description: "Run the Soroban static analyser and upload a SARIF report to GitHub code scanning"
+author: "soroban-security-sdk authors"
+
+branding:
+  icon: "shield"
+  color: "purple"
+
+inputs:
+  path:
+    description: "Contract crate or source file to analyse."
+    required: false
+    default: "."
+  wasm:
+    description: "Path to a compiled .wasm module, if one is available."
+    required: false
+    default: ""
+  fail-on:
+    description: "Severity that fails the job: info, low, medium, high, critical, or none."
+    required: false
+    default: "high"
+  sarif-file:
+    description: "Where to write the SARIF report."
+    required: false
+    default: "soroban-sec.sarif"
+  upload-sarif:
+    description: "Upload the report to GitHub code scanning."
+    required: false
+    default: "true"
+
+outputs:
+  sarif-file:
+    description: "Path of the written SARIF report."
+    value: ${{ steps.analyze.outputs.sarif-file }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Build soroban-sec
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: cargo build --release -p soroban-sec
+
+    - name: Analyse
+      id: analyze
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        set -uo pipefail
+        scanner="${{ github.action_path }}/target/release/soroban-sec"
+        args=( "${{ inputs.path }}" --format sarif -o "${{ inputs.sarif-file }}" )
+        if [ -n "${{ inputs.wasm }}" ]; then
+          args+=( --wasm "${{ inputs.wasm }}" )
+        fi
+        if [ -n "${{ inputs.fail-on }}" ] && [ "${{ inputs.fail-on }}" != "none" ]; then
+          args+=( --fail-on "${{ inputs.fail-on }}" )
+        fi
+        "$scanner" "${args[@]}"
+        echo "exit-code=$?" >> "$GITHUB_OUTPUT"
+        echo "sarif-file=${{ inputs.sarif-file }}" >> "$GITHUB_OUTPUT"
+
+    - name: Upload SARIF
+      if: ${{ always() && inputs.upload-sarif == 'true' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+
+    - name: Enforce severity threshold
+      if: ${{ steps.analyze.outputs.exit-code != '0' }}
+      shell: bash
+      run: exit ${{ steps.analyze.outputs.exit-code }}

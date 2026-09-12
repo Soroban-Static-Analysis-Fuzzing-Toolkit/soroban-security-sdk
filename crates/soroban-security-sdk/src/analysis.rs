@@ -325,7 +325,11 @@ impl ProjectBuilder {
 
 /// Analyse `project` with every enabled detector from the global registry.
 pub fn analyze(project: &Project, config: &AnalysisConfig) -> AnalysisReport {
-    analyze_with(project, config, &crate::registry::DetectorRegistry::from_inventory())
+    analyze_with(
+        project,
+        config,
+        &crate::registry::DetectorRegistry::from_inventory(),
+    )
 }
 
 /// Analyse `project` with a caller-supplied registry.
@@ -377,21 +381,26 @@ pub fn analyze_with(
 
     let mut findings: Vec<Finding> = Vec::new();
     let mut rules: Vec<DetectorMeta> = Vec::new();
+    let mut skipped_without_wasm: Vec<&str> = Vec::new();
     for (meta, detector) in registry.selected(config) {
         if meta.requires_wasm && wasm.is_none() {
-            diagnostics.push(Diagnostic::new(
-                DiagnosticKind::MissingWasm,
-                format!(
-                    "`{}` needs a compiled contract; pass a `.wasm` path to run it",
-                    meta.id
-                ),
-            ));
+            skipped_without_wasm.push(meta.id.as_str());
             continue;
         }
         let mut sink = FindingSink::new(meta.clone(), project.sources());
         detector.detect(&ctx, &mut sink);
         findings.extend(sink.into_findings());
         rules.push(meta.clone());
+    }
+    if !skipped_without_wasm.is_empty() {
+        skipped_without_wasm.sort_unstable();
+        diagnostics.push(Diagnostic::new(
+            DiagnosticKind::MissingWasm,
+            format!(
+                "no compiled contract was supplied, so wasm-only rule(s) did not run: {}",
+                skipped_without_wasm.join(", ")
+            ),
+        ));
     }
 
     // User severity overrides are applied after the detectors run, so a detector
@@ -560,7 +569,9 @@ impl AnalysisReport {
 
     /// Whether any finding is at or above `severity`.
     pub fn has_findings_at_or_above(&self, severity: Severity) -> bool {
-        self.findings.iter().any(|finding| finding.severity >= severity)
+        self.findings
+            .iter()
+            .any(|finding| finding.severity >= severity)
     }
 
     /// The most severe finding level present, if any.
@@ -667,14 +678,11 @@ mod tests {
     struct Flagging;
 
     impl Detector for Flagging {
-        const META: DetectorMeta = DetectorMeta::new(
-            RuleId::new("SSDK970"),
-            "flagging",
-            "flags every entrypoint",
-        )
-        .severity(Severity::Medium)
-        .confidence(Confidence::High)
-        .category(Category::BestPractice);
+        const META: DetectorMeta =
+            DetectorMeta::new(RuleId::new("SSDK970"), "flagging", "flags every entrypoint")
+                .severity(Severity::Medium)
+                .confidence(Confidence::High)
+                .category(Category::BestPractice);
 
         fn detect<'a>(&self, ctx: &AnalysisContext<'a>, sink: &mut FindingSink<'a>) {
             for entrypoint in ctx.entrypoints() {
@@ -714,7 +722,10 @@ impl Token {
         assert_eq!(report.rules.len(), 1);
         assert_eq!(report.highest_severity(), Some(Severity::Medium));
         assert_eq!(report.count_by_severity().get(&Severity::Medium), Some(&2));
-        assert_eq!(report.count_by_category().get(&Category::BestPractice), Some(&2));
+        assert_eq!(
+            report.count_by_category().get(&Category::BestPractice),
+            Some(&2)
+        );
         assert!(report.has_findings_at_or_above(Severity::Low));
         assert!(!report.has_findings_at_or_above(Severity::High));
         assert!(!report.summary().contains("no findings"));
@@ -782,10 +793,7 @@ impl Token {
     #[test]
     fn unused_suppressions_become_diagnostics() {
         let mut config = AnalysisConfig::default();
-        config
-            .rules
-            .disabled
-            .push(RuleId::new("SSDK970"));
+        config.rules.disabled.push(RuleId::new("SSDK970"));
         // No detector runs, so the ignore-comment has nothing to silence.
         let project = ProjectBuilder::new()
             .source(
@@ -795,9 +803,10 @@ impl Token {
             .unwrap()
             .build();
         let report = analyze_with(&project, &config, &registry());
-        assert!(report.diagnostics.iter().any(|diagnostic| {
-            diagnostic.kind == DiagnosticKind::UnusedSuppression
-        }));
+        assert!(report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.kind == DiagnosticKind::UnusedSuppression }));
     }
 
     #[test]
@@ -813,7 +822,13 @@ impl Token {
 
     #[test]
     fn parse_failures_do_not_abort_analysis() {
-        let file = SourceFile::parse(FileId(0), "src/ok.rs", "src/ok.rs", "#[contractimpl]\nimpl T { pub fn a(env: Env) {} }\n").unwrap();
+        let file = SourceFile::parse(
+            FileId(0),
+            "src/ok.rs",
+            "src/ok.rs",
+            "#[contractimpl]\nimpl T { pub fn a(env: Env) {} }\n",
+        )
+        .unwrap();
         let project = Project::from_sources(vec![file]);
         let report = analyze_with(&project, &AnalysisConfig::default(), &registry());
         assert_eq!(report.len(), 1);
@@ -833,10 +848,7 @@ impl Token {
 "#,
         );
         let report = analyze_with(&project, &AnalysisConfig::default(), &registry());
-        assert_eq!(
-            report.budget.entrypoint("a").unwrap().writes.lower_bound,
-            1
-        );
+        assert_eq!(report.budget.entrypoint("a").unwrap().writes.lower_bound, 1);
         let _ = NetworkLimits::mainnet();
     }
 

@@ -23,8 +23,8 @@ use crate::syntax::attrs::{has_attr, is_test};
 use crate::syntax::exprs::{ident_of, literal_int, unwrap_refs};
 use crate::syntax::functions::{classify_type, params_of};
 use crate::syntax::paths::{
-    canonical, collection_type_of, collection_type_of_name, integer_type_of,
-    integer_type_of_name, last_segment, path_ends_with, CollectionTy, IntegerTy,
+    canonical, collection_type_of, collection_type_of_name, integer_type_of, integer_type_of_name,
+    last_segment, path_ends_with, CollectionTy, IntegerTy,
 };
 use crate::syntax::{Expr, ParamKind};
 
@@ -157,7 +157,11 @@ impl Builder {
         let Some(caller) = self.function.as_ref().map(|ctx| ctx.name.clone()) else {
             return;
         };
-        self.model.call_graph.entry(caller).or_default().push(callee);
+        self.model
+            .call_graph
+            .entry(caller)
+            .or_default()
+            .push(callee);
     }
 
     fn enter_function(
@@ -368,10 +372,7 @@ impl Builder {
             let env_form = receiver_ty == ParamKind::Env || canonical(receiver) == "Address";
             let (target, target_span) = if env_form {
                 let first = nth_arg(node, 0);
-                (
-                    first.map(canonical),
-                    first.map(SourceSpan::of),
-                )
+                (first.map(canonical), first.map(SourceSpan::of))
             } else {
                 (Some(canonical(receiver)), Some(SourceSpan::of(receiver)))
             };
@@ -411,7 +412,11 @@ impl Builder {
                 interface,
                 client_type,
                 method: method.clone(),
-                args: node.args.iter().map(|arg| canonical(unwrap_refs(arg))).collect(),
+                args: node
+                    .args
+                    .iter()
+                    .map(|arg| canonical(unwrap_refs(arg)))
+                    .collect(),
                 arg_spans: node.args.iter().map(SourceSpan::of).collect(),
                 returns_result: method.starts_with("try_"),
                 span,
@@ -421,7 +426,9 @@ impl Builder {
         // Explicitly wrapping arithmetic, which opts out of overflow checking.
         if let Some(op) = IntegerOp::from_wrapping_method(&method) {
             let receiver_type = self.infer(&node.receiver);
-            let right_type = nth_arg(node, 0).map(|arg| self.infer(arg)).unwrap_or(ParamKind::Other);
+            let right_type = nth_arg(node, 0)
+                .map(|arg| self.infer(arg))
+                .unwrap_or(ParamKind::Other);
             let text = canonical(node);
             let untyped = !matches!(receiver_type, ParamKind::Integer(_));
             self.model.arithmetic.push(ArithmeticSite {
@@ -744,7 +751,8 @@ impl<'ast> Visit<'ast> for Builder {
             self.record_method_call(node);
         }
         let method = node.method.to_string();
-        let guarded = IntegerOp::from_wrapping_method(&method).is_some() || is_checked_arithmetic(&method);
+        let guarded =
+            IntegerOp::from_wrapping_method(&method).is_some() || is_checked_arithmetic(&method);
         if guarded {
             self.guarded_depth += 1;
         }
@@ -983,7 +991,9 @@ impl<'ast> Visit<'ast> for TypeEnvCollector {
                     // `let balance: i128 = storage.get(&KEY)` teaches us the type of
                     // the value stored under KEY.
                     if matches!(kind, ParamKind::Integer(_) | ParamKind::Collection(_)) {
-                        if let Some(key) = init.as_ref().and_then(|init| first_storage_key(&init.expr)) {
+                        if let Some(key) =
+                            init.as_ref().and_then(|init| first_storage_key(&init.expr))
+                        {
                             self.key_types.insert(key, kind);
                         }
                     }
@@ -1178,7 +1188,10 @@ fn storage_key_expr(
     access: StorageAccess,
 ) -> Option<&Expr> {
     match access {
-        StorageAccess::Set | StorageAccess::Get | StorageAccess::Has | StorageAccess::Remove
+        StorageAccess::Set
+        | StorageAccess::Get
+        | StorageAccess::Has
+        | StorageAccess::Remove
         | StorageAccess::GetTtl => nth_arg(node, 0),
         // `instance().extend_ttl(threshold, extend_to)` takes no key; the other tiers do.
         StorageAccess::ExtendTtl => {
@@ -1202,10 +1215,14 @@ fn storage_value_expr(node: &syn::ExprMethodCall, access: StorageAccess) -> Opti
 /// Canonical text of the last type argument of a turbofish, e.g. `i128`.
 fn turbofish_text(node: &syn::ExprMethodCall) -> Option<String> {
     let arguments = node.turbofish.as_ref()?;
-    arguments.args.iter().rev().find_map(|argument| match argument {
-        syn::GenericArgument::Type(ty) => Some(canonical(ty)),
-        _ => None,
-    })
+    arguments
+        .args
+        .iter()
+        .rev()
+        .find_map(|argument| match argument {
+            syn::GenericArgument::Type(ty) => Some(canonical(ty)),
+            _ => None,
+        })
 }
 
 /// Declared value type from a turbofish such as `get::<_, i128>(&key)`.
@@ -1313,14 +1330,7 @@ fn client_interface_of_expr(expr: &Expr) -> Option<String> {
         .iter()
         .map(|segment| segment.ident.to_string())
         .collect();
-    Some(
-        segments
-            .iter()
-            .rev()
-            .nth(2)
-            .cloned()
-            .unwrap_or_default(),
-    )
+    Some(segments.iter().rev().nth(2).cloned().unwrap_or_default())
 }
 
 /// Canonical text of the first ledger key read or written in an expression.
@@ -1493,16 +1503,24 @@ impl Token {
             .iter()
             .map(|site| (site.op.as_str().to_string(), site.untyped))
             .collect();
-        assert!(ops.contains(&("wrapping_mul".into(), false)), "wrapping op: {ops:?}");
+        assert!(
+            ops.contains(&("wrapping_mul".into(), false)),
+            "wrapping op: {ops:?}"
+        );
         assert!(ops.contains(&("+".into(), false)), "typed add: {ops:?}");
-        assert!(ops.contains(&("-".into(), false)), "typed subtract: {ops:?}");
-        assert!(ops.contains(&("+".into(), true)), "untyped add is marked: {ops:?}");
-        let guarded: Vec<bool> = model
-            .arithmetic
-            .iter()
-            .map(|site| site.guarded)
-            .collect();
-        assert!(guarded.iter().all(|flag| !flag), "no site is inside a condition");
+        assert!(
+            ops.contains(&("-".into(), false)),
+            "typed subtract: {ops:?}"
+        );
+        assert!(
+            ops.contains(&("+".into(), true)),
+            "untyped add is marked: {ops:?}"
+        );
+        let guarded: Vec<bool> = model.arithmetic.iter().map(|site| site.guarded).collect();
+        assert!(
+            guarded.iter().all(|flag| !flag),
+            "no site is inside a condition"
+        );
     }
 
     #[test]
@@ -1574,8 +1592,14 @@ impl Token {
             ]
         );
         assert!(!model.loops[0].is_risky(), "literal loop is bounded");
-        assert!(model.loops[1].is_risky(), "loop over a caller collection touches storage");
-        assert!(model.loops[2].is_risky(), "loop over storage state touches storage");
+        assert!(
+            model.loops[1].is_risky(),
+            "loop over a caller collection touches storage"
+        );
+        assert!(
+            model.loops[2].is_risky(),
+            "loop over storage state touches storage"
+        );
     }
 
     #[test]
@@ -1621,7 +1645,11 @@ impl Vault {
 }
 "#,
         );
-        let calls: Vec<String> = model.calls.iter().map(ContractCall::qualified_name).collect();
+        let calls: Vec<String> = model
+            .calls
+            .iter()
+            .map(ContractCall::qualified_name)
+            .collect();
         assert_eq!(calls, vec!["token::transfer"]);
         assert_eq!(model.calls[0].arg(0), Some("from"));
         assert_eq!(model.upgrades.len(), 1);
@@ -1681,7 +1709,10 @@ pub struct Transfer {
             types,
             vec!["Enum:DataKey:2", "Error:Error:1", "Event:Transfer:0"]
         );
-        assert_eq!(model.types[1].variants[0], ("NotAuthorized".to_string(), false));
+        assert_eq!(
+            model.types[1].variants[0],
+            ("NotAuthorized".to_string(), false)
+        );
         assert_eq!(model.types[0].variants[1], ("Balance".to_string(), true));
     }
 

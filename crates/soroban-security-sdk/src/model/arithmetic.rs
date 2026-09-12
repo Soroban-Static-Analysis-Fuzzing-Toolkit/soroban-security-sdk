@@ -70,7 +70,10 @@ impl IntegerOp {
 
     /// Whether the operation can silently wrap an integer.
     pub const fn can_overflow(self) -> bool {
-        matches!(self, IntegerOp::Add | IntegerOp::Sub | IntegerOp::Mul | IntegerOp::Neg)
+        matches!(
+            self,
+            IntegerOp::Add | IntegerOp::Sub | IntegerOp::Mul | IntegerOp::Neg
+        )
     }
 
     /// Whether the operation is an explicit opt-out from overflow checking.
@@ -86,7 +89,10 @@ impl IntegerOp {
 
     /// Whether the operation can panic or abort on a zero divisor.
     pub const fn is_division(self) -> bool {
-        matches!(self, IntegerOp::Div | IntegerOp::Rem | IntegerOp::WrappingDiv)
+        matches!(
+            self,
+            IntegerOp::Div | IntegerOp::Rem | IntegerOp::WrappingDiv
+        )
     }
 
     /// Map a `wrapping_*` method name to an op.

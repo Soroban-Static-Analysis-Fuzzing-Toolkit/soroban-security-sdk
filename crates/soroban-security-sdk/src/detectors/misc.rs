@@ -60,7 +60,7 @@ impl Detector for UnauthorizedUpgrade {
     const META: DetectorMeta = DetectorMeta::new(
         RuleId::new("SSDK012"),
         "unauthorized-upgrade",
-        "An upgrade path is missing authorization or trusts a caller-supplied hash.",
+        "A contract upgrade is reachable without authorization.",
     )
     .severity(Severity::Critical)
     .confidence(Confidence::High)
@@ -68,8 +68,7 @@ impl Detector for UnauthorizedUpgrade {
     .description(
         "`update_current_contract_wasm` replaces all of the contract's code, including \
          its authorization logic. An upgrade path that is not gated on an admin \
-         `require_auth`, or that accepts the new wasm hash from a caller, hands the \
-         contract to the attacker.",
+         `require_auth` hands the contract to whoever calls it.",
     )
     .tags(&["upgrade", "admin", "auth"])
     .references(&[Reference::new(
@@ -83,38 +82,32 @@ impl Detector for UnauthorizedUpgrade {
             if !upgrade.replaces_current_contract() {
                 continue;
             }
-            let authorized = model.has_transitive_auth(&upgrade.site.function);
-            if authorized && !upgrade.argument_is_parameter {
+            // An admin-authorized upgrade that takes the new hash as an argument is
+            // the ordinary pattern, so only the missing check is reported.
+            if model.has_transitive_auth(&upgrade.site.function) {
                 continue;
             }
-            let reason = if !authorized {
-                "no authorization check reaches this entrypoint".to_string()
-            } else {
-                format!(
-                    "the new wasm hash `{}` is supplied by the caller",
+            let mut builder = sink
+                .report(format!(
+                    "`{}` replaces the contract code without authorizing the caller",
+                    upgrade.method
+                ))
+                .severity(Severity::Critical)
+                .primary(upgrade.site.file, upgrade.span)
+                .in_function(upgrade.site.function.clone());
+            if upgrade.argument_is_parameter {
+                builder = builder.note(format!(
+                    "The new wasm hash `{}` also comes straight from the caller.",
                     upgrade.argument.as_deref().unwrap_or("?")
+                ));
+            }
+            builder
+                .note(
+                    "Upgrading changes the contract's code and therefore every rule it \
+                     enforces.",
                 )
-            };
-            sink.report(format!(
-                "`{}` replaces the contract code and {}",
-                upgrade.method, reason
-            ))
-            .severity(if authorized {
-                Severity::High
-            } else {
-                Severity::Critical
-            })
-            .primary(upgrade.site.file, upgrade.span)
-            .in_function(upgrade.site.function.clone())
-            .note(
-                "Upgrading changes the contract's code and therefore every rule it \
-                 enforces.",
-            )
-            .help(
-                "Gate the upgrade behind an admin `require_auth` and store the approved \
-                 wasm hash on-chain rather than accepting it as an argument.",
-            )
-            .emit();
+                .help("Gate the upgrade behind an admin `require_auth`.")
+                .emit();
         }
     }
 }

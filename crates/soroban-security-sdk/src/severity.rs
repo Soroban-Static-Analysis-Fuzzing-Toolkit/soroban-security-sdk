@@ -194,7 +194,12 @@ mod tests {
         let mut values = Severity::ALL;
         values.reverse();
         for pair in values.windows(2) {
-            assert!(pair[0] > pair[1], "{:?} should outrank {:?}", pair[0], pair[1]);
+            assert!(
+                pair[0] > pair[1],
+                "{:?} should outrank {:?}",
+                pair[0],
+                pair[1]
+            );
         }
     }
 
@@ -204,7 +209,10 @@ mod tests {
             assert_eq!(severity.as_str().parse::<Severity>().unwrap(), severity);
         }
         for confidence in Confidence::ALL {
-            assert_eq!(confidence.as_str().parse::<Confidence>().unwrap(), confidence);
+            assert_eq!(
+                confidence.as_str().parse::<Confidence>().unwrap(),
+                confidence
+            );
         }
     }
 

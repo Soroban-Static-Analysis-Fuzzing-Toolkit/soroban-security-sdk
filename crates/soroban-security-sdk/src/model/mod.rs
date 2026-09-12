@@ -127,7 +127,10 @@ impl Entrypoint {
 
     /// Parameter names, in order.
     pub fn param_names(&self) -> Vec<&str> {
-        self.params.iter().map(|param| param.name.as_str()).collect()
+        self.params
+            .iter()
+            .map(|param| param.name.as_str())
+            .collect()
     }
 
     /// The first collection-typed parameter, if any.
@@ -215,7 +218,9 @@ pub fn build(sources: &SourceMap, include_tests: bool) -> ContractModel {
 impl ContractModel {
     /// Every entrypoint across all contracts.
     pub fn entrypoints(&self) -> impl Iterator<Item = &Entrypoint> {
-        self.contracts.iter().flat_map(|contract| contract.entrypoints.iter())
+        self.contracts
+            .iter()
+            .flat_map(|contract| contract.entrypoints.iter())
     }
 
     /// Look up an entrypoint by name across all contracts.
@@ -225,7 +230,9 @@ impl ContractModel {
 
     /// Names of every entrypoint.
     pub fn entrypoint_names(&self) -> Vec<&str> {
-        self.entrypoints().map(|entry| entry.name.as_str()).collect()
+        self.entrypoints()
+            .map(|entry| entry.name.as_str())
+            .collect()
     }
 
     /// Whether a function name is an exported entrypoint.
@@ -249,11 +256,16 @@ impl ContractModel {
 
     /// Loops inside a function.
     pub fn loops_in<'a>(&'a self, function: &'a str) -> impl Iterator<Item = &'a LoopSite> {
-        self.loops.iter().filter(move |item| item.site.function == function)
+        self.loops
+            .iter()
+            .filter(move |item| item.site.function == function)
     }
 
     /// Arithmetic sites inside a function.
-    pub fn arithmetic_in<'a>(&'a self, function: &'a str) -> impl Iterator<Item = &'a ArithmeticSite> {
+    pub fn arithmetic_in<'a>(
+        &'a self,
+        function: &'a str,
+    ) -> impl Iterator<Item = &'a ArithmeticSite> {
         self.arithmetic
             .iter()
             .filter(move |item| item.site.function == function)
@@ -291,7 +303,8 @@ impl ContractModel {
     /// Whether `function` performs an authorization check, directly or in a callee.
     pub fn has_transitive_auth(&self, function: &str) -> bool {
         self.has_transitive(function, |name| {
-            self.auth_in(name).any(|check| check.kind.establishes_authorization())
+            self.auth_in(name)
+                .any(|check| check.kind.establishes_authorization())
         })
     }
 
@@ -341,7 +354,11 @@ impl ContractModel {
         for op in &self.storage_ops {
             if let Some(key) = &op.key {
                 if let Some((prefix, _)) = key.split_once("::") {
-                    if self.types.iter().any(|ty| ty.name == prefix && ty.is_enum()) {
+                    if self
+                        .types
+                        .iter()
+                        .any(|ty| ty.name == prefix && ty.is_enum())
+                    {
                         names.insert(prefix);
                     }
                 }
@@ -363,12 +380,16 @@ impl ContractModel {
 
     /// Panics inside a function.
     pub fn panics_in<'a>(&'a self, function: &'a str) -> impl Iterator<Item = &'a PanicSite> {
-        self.panics.iter().filter(move |item| item.site.function == function)
+        self.panics
+            .iter()
+            .filter(move |item| item.site.function == function)
     }
 
     /// Cross-contract calls inside a function.
     pub fn calls_in<'a>(&'a self, function: &'a str) -> impl Iterator<Item = &'a ContractCall> {
-        self.calls.iter().filter(move |item| item.site.function == function)
+        self.calls
+            .iter()
+            .filter(move |item| item.site.function == function)
     }
 
     /// Upgrades inside a function.

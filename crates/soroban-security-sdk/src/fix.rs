@@ -157,7 +157,9 @@ pub fn plan(sources: &SourceMap, findings: &[Finding]) -> FixPlan {
         if fix.edits.is_empty() {
             continue;
         }
-        let primary_file = finding.primary_location().and_then(|location| location.file_id);
+        let primary_file = finding
+            .primary_location()
+            .and_then(|location| location.file_id);
         // A fix may span several files; group its edits per file.
         let mut by_file: Vec<(FileId, Vec<Edit>)> = Vec::new();
         for edit in &fix.edits {
@@ -343,7 +345,11 @@ mod tests {
     #[test]
     fn plan_inherits_the_primary_location_file() {
         let sources = source_map();
-        let mut finding = Finding::new(&META, "m", sources.location(FileId(0), SourceSpan::point(1, 1)));
+        let mut finding = Finding::new(
+            &META,
+            "m",
+            sources.location(FileId(0), SourceSpan::point(1, 1)),
+        );
         finding.fix = Some(Fix::new(
             "insert a comment",
             vec![Edit::at(SourceSpan::point(1, 1), "// note\n")],

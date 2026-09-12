@@ -242,7 +242,12 @@ impl Finding {
             feed(&span.start_column.to_le_bytes());
         }
         feed(b"|");
-        feed(location.and_then(|l| l.function.as_deref()).unwrap_or("").as_bytes());
+        feed(
+            location
+                .and_then(|l| l.function.as_deref())
+                .unwrap_or("")
+                .as_bytes(),
+        );
         format!("{hash:016x}")
     }
 

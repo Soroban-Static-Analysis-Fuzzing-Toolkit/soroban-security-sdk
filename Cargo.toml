@@ -1,6 +1,10 @@
 [workspace]
 resolver = "3"
-members = ["crates/soroban-security-sdk", "crates/soroban-sec"]
+members = [
+    "crates/soroban-security-sdk",
+    "crates/soroban-sec",
+    "crates/soroban-sec-fuzz",
+]
 default-members = ["crates/soroban-security-sdk"]
 
 [workspace.package]

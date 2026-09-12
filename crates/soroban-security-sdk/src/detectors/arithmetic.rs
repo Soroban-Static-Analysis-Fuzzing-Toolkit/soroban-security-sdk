@@ -118,15 +118,18 @@ impl Detector for LossyCast {
             if !cast.lossy {
                 continue;
             }
-            sink.report(format!("`{}` truncates or reinterprets the value", cast.describe()))
-                .primary(cast.site.file, cast.span)
-                .in_function(cast.site.function.clone())
-                .note(
-                    "`as` never checks range or sign, so the result can silently differ \
+            sink.report(format!(
+                "`{}` truncates or reinterprets the value",
+                cast.describe()
+            ))
+            .primary(cast.site.file, cast.span)
+            .in_function(cast.site.function.clone())
+            .note(
+                "`as` never checks range or sign, so the result can silently differ \
                      from the operand.",
-                )
-                .help("Use `try_into()` and handle the error, or widen the target type.")
-                .emit();
+            )
+            .help("Use `try_into()` and handle the error, or widen the target type.")
+            .emit();
         }
     }
 }
@@ -215,7 +218,7 @@ impl Detector for OverflowChecksDisabled {
             wasm_offset: None,
         };
         sink.report(
-            "`[profile.release] overflow-checks` is not enabled, so arithmetic wraps \\
+            "`[profile.release] overflow-checks` is not enabled, so arithmetic wraps \
              instead of panicking in release builds",
         )
         .location(location)

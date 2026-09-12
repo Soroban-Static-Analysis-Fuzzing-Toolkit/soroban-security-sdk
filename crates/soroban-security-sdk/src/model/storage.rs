@@ -125,7 +125,10 @@ impl StorageAccess {
     pub const fn is_read(self) -> bool {
         matches!(
             self,
-            StorageAccess::Get | StorageAccess::Has | StorageAccess::GetTtl | StorageAccess::ExtendTtl
+            StorageAccess::Get
+                | StorageAccess::Has
+                | StorageAccess::GetTtl
+                | StorageAccess::ExtendTtl
         )
     }
 
@@ -232,7 +235,10 @@ mod tests {
     #[test]
     fn parses_access_from_method_names() {
         assert_eq!(StorageAccess::from_method("set"), Some(StorageAccess::Set));
-        assert_eq!(StorageAccess::from_method("bump"), Some(StorageAccess::ExtendTtl));
+        assert_eq!(
+            StorageAccess::from_method("bump"),
+            Some(StorageAccess::ExtendTtl)
+        );
         assert_eq!(StorageAccess::from_method("iter"), None);
     }
 
@@ -249,7 +255,10 @@ mod tests {
         assert!(StorageTier::Temporary.is_destructive_on_expiry());
         assert!(!StorageTier::Persistent.is_destructive_on_expiry());
         assert!(StorageTier::Instance.is_instance());
-        assert_eq!(StorageTier::from_method("persistent"), Some(StorageTier::Persistent));
+        assert_eq!(
+            StorageTier::from_method("persistent"),
+            Some(StorageTier::Persistent)
+        );
     }
 
     #[test]
@@ -257,7 +266,10 @@ mod tests {
         let operation = op("DataKey::Balance(addr)");
         assert_eq!(operation.key_enum(), Some("DataKey"));
         assert_eq!(operation.key_variant(), Some("Balance"));
-        assert_eq!(operation.describe(), "persistent.set(DataKey::Balance(addr))");
+        assert_eq!(
+            operation.describe(),
+            "persistent.set(DataKey::Balance(addr))"
+        );
         let simple = op("DataKey::Total");
         assert_eq!(simple.key_variant(), Some("Total"));
         assert_eq!(simple.key_enum(), Some("DataKey"));

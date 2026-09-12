@@ -123,10 +123,7 @@ pub fn collect(sources: &SourceMap) -> Vec<Suppression> {
 /// Filter findings against suppressions.
 ///
 /// Returns `(kept, suppressed)`.
-pub fn apply(
-    findings: Vec<Finding>,
-    suppressions: &[Suppression],
-) -> (Vec<Finding>, Vec<Finding>) {
+pub fn apply(findings: Vec<Finding>, suppressions: &[Suppression]) -> (Vec<Finding>, Vec<Finding>) {
     if suppressions.is_empty() {
         return (findings, Vec::new());
     }
@@ -146,10 +143,7 @@ pub fn apply(
 ///
 /// Pass every finding produced by the run (including ones that were suppressed),
 /// otherwise a suppression that did its job looks unused.
-pub fn unused<'a>(
-    suppressions: &'a [Suppression],
-    findings: &[Finding],
-) -> Vec<&'a Suppression> {
+pub fn unused<'a>(suppressions: &'a [Suppression], findings: &[Finding]) -> Vec<&'a Suppression> {
     suppressions
         .iter()
         .filter(|item| !findings.iter().any(|finding| item.covers(finding)))
@@ -223,9 +217,7 @@ fn scope_for(items: &[Item], file: FileId, line: u32) -> (u32, u32) {
     let following = items
         .iter()
         .filter(|item| {
-            item.file == file
-                && item.span.start_line > line
-                && item.span.start_line <= line + 10
+            item.file == file && item.span.start_line > line && item.span.start_line <= line + 10
         })
         .min_by_key(|item| (item.span.start_line, span_size(item.span)));
     match following {
@@ -364,7 +356,9 @@ mod tests {
 
     #[test]
     fn bare_ignore_silences_every_rule_but_only_in_scope() {
-        let sources = source_map("fn a() {\n    // soroban-sec: ignore\n    x();\n}\nfn b() {\n    y();\n}\n");
+        let sources = source_map(
+            "fn a() {\n    // soroban-sec: ignore\n    x();\n}\nfn b() {\n    y();\n}\n",
+        );
         let suppression = &collect(&sources)[0];
         assert!(suppression.rules.is_none());
         assert!(suppression.covers(&finding_at(FileId(0), 3)));
@@ -385,7 +379,9 @@ mod tests {
 
     #[test]
     fn apply_splits_kept_and_suppressed() {
-        let sources = source_map("fn a() {\n    // soroban-sec: ignore SSDK003\n    x();\n}\nfn b() {\n    y();\n}\n");
+        let sources = source_map(
+            "fn a() {\n    // soroban-sec: ignore SSDK003\n    x();\n}\nfn b() {\n    y();\n}\n",
+        );
         let suppressions = collect(&sources);
         let findings = vec![finding_at(FileId(0), 3), finding_at(FileId(0), 6)];
         let (kept, suppressed) = apply(findings.clone(), &suppressions);

@@ -102,10 +102,10 @@ impl<D: Detector> DynDetector for D {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::budget::BudgetReport;
     use crate::category::Category;
     use crate::config::AnalysisConfig;
     use crate::model::ContractModel;
-    use crate::budget::BudgetReport;
     use crate::rule::RuleId;
     use crate::severity::{Confidence, Severity};
     use crate::source::SourceMap;
@@ -113,10 +113,11 @@ mod tests {
     struct Noop;
 
     impl Detector for Noop {
-        const META: DetectorMeta = DetectorMeta::new(RuleId::new("SSDK950"), "noop", "does nothing")
-            .severity(Severity::Info)
-            .confidence(Confidence::Certain)
-            .category(Category::BestPractice);
+        const META: DetectorMeta =
+            DetectorMeta::new(RuleId::new("SSDK950"), "noop", "does nothing")
+                .severity(Severity::Info)
+                .confidence(Confidence::Certain)
+                .category(Category::BestPractice);
 
         fn detect<'a>(&self, _ctx: &AnalysisContext<'a>, _sink: &mut FindingSink<'a>) {}
     }

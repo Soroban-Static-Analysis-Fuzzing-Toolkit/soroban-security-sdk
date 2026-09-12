@@ -324,7 +324,10 @@ max_read_entries = 42
             Some(&Severity::High)
         );
         assert_eq!(config.limits.max_read_entries, 42);
-        assert_eq!(config.limits.max_write_entries, 200, "untouched fields keep defaults");
+        assert_eq!(
+            config.limits.max_write_entries, 200,
+            "untouched fields keep defaults"
+        );
     }
 
     #[test]
@@ -366,7 +369,8 @@ max_read_entries = 42
             },
             ..AnalysisConfig::default()
         };
-        let auth_rule = DetectorMeta::new(RuleId::new("SSDK001"), "n", "s").category(Category::Auth);
+        let auth_rule =
+            DetectorMeta::new(RuleId::new("SSDK001"), "n", "s").category(Category::Auth);
         assert!(!config.rules.is_enabled(&auth_rule));
         let storage_rule =
             DetectorMeta::new(RuleId::new("SSDK002"), "n", "s").category(Category::Storage);
@@ -380,8 +384,14 @@ max_read_entries = 42
             .rules
             .severity
             .insert(RuleId::new("SSDK001"), Severity::Critical);
-        assert_eq!(config.rules.severity_for(&meta("SSDK001")), Severity::Critical);
-        assert_eq!(config.rules.severity_for(&meta("SSDK002")), Severity::Medium);
+        assert_eq!(
+            config.rules.severity_for(&meta("SSDK001")),
+            Severity::Critical
+        );
+        assert_eq!(
+            config.rules.severity_for(&meta("SSDK002")),
+            Severity::Medium
+        );
     }
 
     #[test]

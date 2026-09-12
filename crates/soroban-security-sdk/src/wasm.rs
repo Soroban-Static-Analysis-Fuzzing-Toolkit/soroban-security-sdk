@@ -102,7 +102,8 @@ pub struct WasmFunction {
 impl WasmFunction {
     /// Instructions outside of any loop body.
     pub fn straight_line_instructions(&self) -> u64 {
-        self.instruction_count.saturating_sub(self.loop_instructions)
+        self.instruction_count
+            .saturating_sub(self.loop_instructions)
     }
 
     /// Whether the function contains control flow that hides its real cost.
@@ -206,7 +207,10 @@ impl WasmModule {
                     for group in reader {
                         match group.map_err(|err| wasm_error(&name, err))? {
                             Imports::Single(_, import) => push_import(&mut module, import),
-                            Imports::Compact1 { module: import_module, items } => {
+                            Imports::Compact1 {
+                                module: import_module,
+                                items,
+                            } => {
                                 for item in items {
                                     let item = item.map_err(|err| wasm_error(&name, err))?;
                                     push_import_parts(
@@ -232,8 +236,7 @@ impl WasmModule {
                 }
                 Payload::FunctionSection(reader) => {
                     for index in reader {
-                        function_type_indices
-                            .push(index.map_err(|err| wasm_error(&name, err))?);
+                        function_type_indices.push(index.map_err(|err| wasm_error(&name, err))?);
                     }
                 }
                 Payload::MemorySection(reader) => {
@@ -286,9 +289,7 @@ impl WasmModule {
                 Payload::CodeSectionEntry(body) => {
                     let defined_index = module.functions.len() as u32;
                     let index = module.imported_function_count + defined_index;
-                    let type_index = function_type_indices
-                        .get(defined_index as usize)
-                        .copied();
+                    let type_index = function_type_indices.get(defined_index as usize).copied();
                     // Locals are encoded as `(count, type)` groups; the number of
                     // locals is the sum of the group counts.
                     let mut local_count = 0u32;
@@ -315,7 +316,10 @@ impl WasmModule {
     }
 
     /// Load and parse a wasm file.
-    pub fn from_path(path: impl AsRef<std::path::Path>, display: impl Into<String>) -> Result<Self> {
+    pub fn from_path(
+        path: impl AsRef<std::path::Path>,
+        display: impl Into<String>,
+    ) -> Result<Self> {
         let path = path.as_ref();
         let bytes = std::fs::read(path).map_err(Error::io(path))?;
         WasmModule::parse(display, &bytes)
@@ -327,7 +331,8 @@ impl WasmModule {
             .iter()
             .filter(|export| export.kind == ExportKind::Function)
             .filter_map(move |export| {
-                self.function(export.index).map(|function| (export, function))
+                self.function(export.index)
+                    .map(|function| (export, function))
             })
     }
 
@@ -442,10 +447,13 @@ fn profile_body(body: &wasmparser::FunctionBody<'_>, name: &str) -> Result<WasmF
             Operator::Loop { .. } => {
                 blocks.push(true);
                 profile.loop_count += 1;
-                profile.max_loop_depth =
-                    profile.max_loop_depth.max(blocks.iter().filter(|is_loop| **is_loop).count() as u32);
+                profile.max_loop_depth = profile
+                    .max_loop_depth
+                    .max(blocks.iter().filter(|is_loop| **is_loop).count() as u32);
             }
-            Operator::Block { .. } | Operator::If { .. } | Operator::Try { .. } => blocks.push(false),
+            Operator::Block { .. } | Operator::If { .. } | Operator::Try { .. } => {
+                blocks.push(false)
+            }
             Operator::End => {
                 blocks.pop();
             }
@@ -480,8 +488,7 @@ mod tests {
 
     #[test]
     fn parses_exports_imports_and_memory() {
-        let bytes = wat(
-            r#"
+        let bytes = wat(r#"
 (module
   (import "env" "require_auth" (func $require_auth (param i64)))
   (import "env" "storage_get" (func $storage_get (param i64) (result i64)))
@@ -491,8 +498,7 @@ mod tests {
     (call $storage_get (local.get 0)))
   (export "transfer" (func $transfer))
 )
-"#,
-        );
+"#);
         let module = WasmModule::parse("target/wasm32/contract.wasm", &bytes).unwrap();
         assert_eq!(module.exported_function_names(), vec!["transfer"]);
         assert_eq!(module.imported_function_count, 2);
@@ -511,8 +517,7 @@ mod tests {
 
     #[test]
     fn counts_instructions_inside_loops() {
-        let bytes = wat(
-            r#"
+        let bytes = wat(r#"
 (module
   (func $iterate (param i32)
     (local i32)
@@ -529,8 +534,7 @@ mod tests {
     drop)
   (export "iterate" (func $iterate))
 )
-"#,
-        );
+"#);
         let module = WasmModule::parse("m.wasm", &bytes).unwrap();
         let function = &module.functions[0];
         assert_eq!(function.loop_count, 2);
@@ -546,8 +550,7 @@ mod tests {
 
     #[test]
     fn detects_indirect_calls_and_memory_growth() {
-        let bytes = wat(
-            r#"
+        let bytes = wat(r#"
 (module
   (type $sig (func))
   (table 1 funcref)
@@ -558,8 +561,7 @@ mod tests {
     drop)
   (export "f" (func $f))
 )
-"#,
-        );
+"#);
         let module = WasmModule::parse("m.wasm", &bytes).unwrap();
         let function = &module.functions[0];
         assert!(function.has_call_indirect);
@@ -569,8 +571,7 @@ mod tests {
 
     #[test]
     fn reports_custom_sections_and_start() {
-        let bytes = wat(
-            r#"
+        let bytes = wat(r#"
 (module
   (memory 1)
   (@custom "contractspecv0" "abc")
@@ -578,12 +579,14 @@ mod tests {
   (start $start)
   (export "start" (func $start))
 )
-"#,
-        );
+"#);
         let module = WasmModule::parse("m.wasm", &bytes).unwrap();
         assert!(module.has_contract_spec());
         assert!(module.has_start);
-        assert!(module.custom_sections.iter().any(|s| s.name == "contractspecv0"));
+        assert!(module
+            .custom_sections
+            .iter()
+            .any(|s| s.name == "contractspecv0"));
     }
 
     #[test]
@@ -600,6 +603,9 @@ mod tests {
         let description = module.describe();
         assert!(description.contains("1 exported functions"));
         assert!(description.contains("64 KiB memory"));
-        assert_eq!(module.total_instructions(), module.functions[0].instruction_count);
+        assert_eq!(
+            module.total_instructions(),
+            module.functions[0].instruction_count
+        );
     }
 }
