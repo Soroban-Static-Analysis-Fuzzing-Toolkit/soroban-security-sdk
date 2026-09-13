@@ -214,7 +214,7 @@ builder generated token soup and mutated real contracts, because a panic on code
 that does not compile would deny service to the tool's own users.
 
 CI runs `cargo fmt --check`, `clippy -D warnings`, the full test matrix,
-`rustdoc -D warnings` and a build against the declared minimum Rust (1.85) on
+`rustdoc -D warnings` and a build against the declared minimum Rust (1.88) on
 every pull request — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License

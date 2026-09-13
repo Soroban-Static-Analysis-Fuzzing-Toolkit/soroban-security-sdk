@@ -10,7 +10,7 @@ default-members = ["crates/soroban-security-sdk"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "MIT"
 repository = "https://github.com/soroban-security/soroban-security-sdk"
 homepage = "https://github.com/soroban-security/soroban-security-sdk"

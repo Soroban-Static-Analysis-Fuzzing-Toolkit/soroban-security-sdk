@@ -45,13 +45,13 @@ jobs:
         run: cargo doc --workspace --no-deps
 
   msrv:
-    name: minimum supported Rust (1.85)
+    name: minimum supported Rust (1.88)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust 1.85
-        uses: dtolnay/rust-toolchain@1.85.0
+      - name: Install Rust 1.88
+        uses: dtolnay/rust-toolchain@1.88.0
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -59,4 +59,4 @@ jobs:
       # The declared `rust-version` must actually build, or downstream users on
       # the minimum toolchain break.
       - name: Check against the minimum supported Rust
-        run: cargo check --workspace --all-targets --all-features
+        run: cargo check --workspace --all-targets --all-features --locked

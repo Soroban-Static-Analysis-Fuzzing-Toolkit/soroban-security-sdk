@@ -69,7 +69,11 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo test -p soroban-security-sdk --no-default-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+cargo +1.88 check --workspace --all-targets --all-features
 ```
+
+The last one is the declared `rust-version`, which CI pins so that raising a
+dependency's MSRV is caught here rather than by a downstream user.
 
 ## Precision is a feature
 
