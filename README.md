@@ -203,10 +203,19 @@ The catalogue is measured against a fixture corpus in
 [`crates/soroban-security-sdk/tests/fixtures/`](crates/soroban-security-sdk/tests/fixtures/).
 Every fixture declares the **exact** set of rules it must produce and the clean
 fixtures must produce none, so an extra finding is a test failure rather than a
-silent regression. Corpus precision is currently 100%.
+silent regression. The corpus includes *near-miss* fixtures — code that
+superficially resembles a vulnerability but is correct — and
+`tests/corpus.rs` reports both precision and recall, currently 100% on each:
+precision against the declared rule sets and recall against the catalogue, since
+every rule must be exercised by at least one fixture.
 
-CI runs `cargo fmt --check`, `clippy -D warnings`, the full test matrix and
-`rustdoc -D warnings` on every pull request — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+The analyser also fuzzes itself: `tests/robustness.rs` feeds the parser and model
+builder generated token soup and mutated real contracts, because a panic on code
+that does not compile would deny service to the tool's own users.
+
+CI runs `cargo fmt --check`, `clippy -D warnings`, the full test matrix,
+`rustdoc -D warnings` and a build against the declared minimum Rust (1.85) on
+every pull request — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License
 

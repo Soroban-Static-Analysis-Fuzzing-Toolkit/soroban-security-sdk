@@ -151,7 +151,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Format::Text => render_text(&report, std::io::stdout().is_terminal()),
         Format::Json => render_json(&report)?,
         Format::Sarif => to_sarif_string(&report),
-        Format::Markdown => unreachable!("rejected before analysis"),
+        // Rejected above; handled without a panic so a future refactor cannot turn
+        // a usage error into a crash.
+        Format::Markdown => {
+            return Err(anyhow!(
+                "`--format markdown` only applies to `--list-rules`"
+            ));
+        }
     };
     write_output(&cli, &rendered)?;
 

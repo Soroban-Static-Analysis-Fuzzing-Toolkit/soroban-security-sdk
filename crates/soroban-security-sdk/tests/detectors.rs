@@ -232,6 +232,32 @@ impl Token {
 }
 
 #[test]
+fn sdk009_is_quiet_when_ttls_are_maintained_elsewhere() {
+    // Extending TTLs from a dedicated keeper entrypoint is the recommended
+    // pattern; the writer must not be flagged just because it is not the one that
+    // bumps the entry.
+    let report = analyze_source(
+        r#"
+#[contractimpl]
+impl Token {
+    pub fn deposit(env: Env, user: Address, amount: i128) {
+        user.require_auth();
+        let total: i128 = env.storage().persistent().get(&DataKey::Total).unwrap_or(0);
+        let next = total.checked_add(amount).unwrap_or(total);
+        env.storage().persistent().set(&DataKey::Total, &next);
+    }
+
+    pub fn bump(env: Env, admin: Address) {
+        admin.require_auth();
+        env.storage().persistent().extend_ttl(&DataKey::Total, 100, 10_000);
+    }
+}
+"#,
+    );
+    assert!(!fired(&report, "SSDK009"));
+}
+
+#[test]
 fn sdk010_check_auth_without_verification() {
     let report = analyze_source(
         r#"

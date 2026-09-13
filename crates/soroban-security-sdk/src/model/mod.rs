@@ -316,6 +316,19 @@ impl ContractModel {
         })
     }
 
+    /// Whether any function in the model extends a TTL at all.
+    ///
+    /// Contracts routinely keep long-lived entries alive from a dedicated
+    /// `bump`/keeper entrypoint rather than from every writer, so a check scoped to
+    /// one entrypoint reports a false positive on the recommended pattern. A
+    /// whole-contract check distinguishes "the contract never maintains a TTL" from
+    /// "this particular entrypoint does not".
+    pub fn extends_any_ttl(&self) -> bool {
+        self.storage_ops
+            .iter()
+            .any(|op| op.access == StorageAccess::ExtendTtl)
+    }
+
     /// Authorization checks whose target text matches `expression`.
     ///
     /// The match is textual on canonical expressions, which is what a detector can

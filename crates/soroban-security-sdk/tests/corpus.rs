@@ -38,6 +38,23 @@ const FIXTURES: &[Fixture] = &[
         source: include_str!("fixtures/clean/bounded_storage.rs"),
         expected: &[],
     },
+    // Near-miss fixtures: code that superficially resembles a vulnerability but is
+    // correct. They exist to keep false positives out as detectors grow.
+    Fixture {
+        name: "clean/near_miss_transitive_auth.rs",
+        source: include_str!("fixtures/clean/near_miss_transitive_auth.rs"),
+        expected: &[],
+    },
+    Fixture {
+        name: "clean/near_miss_checked_arithmetic.rs",
+        source: include_str!("fixtures/clean/near_miss_checked_arithmetic.rs"),
+        expected: &[],
+    },
+    Fixture {
+        name: "clean/near_miss_bounded_loop.rs",
+        source: include_str!("fixtures/clean/near_miss_bounded_loop.rs"),
+        expected: &[],
+    },
     Fixture {
         name: "vulnerable/missing_auth.rs",
         source: include_str!("fixtures/vulnerable/missing_auth.rs"),
@@ -240,9 +257,18 @@ fn overflow_checks_disabled_fixture() {
 }
 
 #[test]
-fn corpus_precision_is_one_hundred_percent() {
-    // Aggregate the corpus into a precision figure so a regression is visible as a
-    // number rather than only as a failing assertion.
+fn precision_and_recall_benchmark() {
+    // Aggregate the corpus into precision and recall figures so a regression is
+    // visible as a number rather than only as a failing assertion. Precision is
+    // measured against each fixture's declared rule set; recall against the
+    // catalogue, since every rule must be exercised by at least one fixture so a
+    // rule cannot silently stop detecting. Run with `--nocapture` to see the
+    // numbers, for example in CI summaries.
+    //
+    // Rules whose coverage lives in a dedicated test file rather than this corpus:
+    // SSDK014 needs a Cargo.toml and SSDK020-022 need a compiled module.
+    const COVERED_ELSEWHERE: [&str; 4] = ["SSDK014", "SSDK020", "SSDK021", "SSDK022"];
+
     let mut true_positives = 0usize;
     let mut false_positives = 0usize;
     for fixture in FIXTURES {
@@ -257,9 +283,42 @@ fn corpus_precision_is_one_hundred_percent() {
         }
     }
     let precision = true_positives as f64 / (true_positives + false_positives) as f64;
+
+    let registry = DetectorRegistry::from_inventory();
+    let exercised: BTreeSet<&str> = FIXTURES
+        .iter()
+        .flat_map(|fixture| fixture.expected.iter().copied())
+        .chain(COVERED_ELSEWHERE)
+        .collect();
+    let catalogued: Vec<&str> = registry
+        .metas()
+        .iter()
+        .map(|meta| meta.id.as_str())
+        .collect();
+    let covered = catalogued
+        .iter()
+        .filter(|id| exercised.contains(*id))
+        .count();
+    let recall = covered as f64 / catalogued.len() as f64;
+
+    println!(
+        "corpus benchmark: precision {:.3} ({true_positives} tp, {false_positives} fp); \
+         recall {:.3} ({covered}/{} rules exercised)",
+        precision,
+        recall,
+        catalogued.len()
+    );
+
     assert!(
         (precision - 1.0).abs() < f64::EPSILON,
-        "corpus precision is {:.3} ({true_positives} true positives, {false_positives} false positives)",
-        precision
+        "corpus precision is {precision:.3} ({true_positives} true positives, {false_positives} false positives)"
+    );
+    assert!(
+        (recall - 1.0).abs() < f64::EPSILON,
+        "corpus recall is {recall:.3}; unexercised rules: {:?}",
+        catalogued
+            .iter()
+            .filter(|id| !exercised.contains(*id))
+            .collect::<Vec<_>>()
     );
 }

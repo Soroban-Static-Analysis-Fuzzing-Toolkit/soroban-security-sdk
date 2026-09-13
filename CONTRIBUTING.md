@@ -78,7 +78,11 @@ catches nothing. Before opening a pull request, make sure:
 
 - The fixture corpus still reports **exactly** the expected rules. The assertions
   in `tests/corpus.rs` are set equality, so an extra finding is a test failure.
-- Every clean fixture under `tests/fixtures/clean/` produces zero findings.
+- Every clean fixture under `tests/fixtures/clean/` produces zero findings,
+  including the *near-miss* fixtures that resemble a vulnerability but are
+  correct. Add a near-miss fixture when a rule starts firing on healthy code.
+- The parser and model builder stay panic-free under garbage: `tests/robustness.rs`
+  runs generated and mutated input through the whole pipeline.
 - Heuristic rules use a lower `confidence` rather than a lower `severity`.
 
 If you find a false positive in a built-in rule, please open an issue with the

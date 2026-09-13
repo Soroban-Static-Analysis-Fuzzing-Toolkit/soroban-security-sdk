@@ -163,6 +163,13 @@ impl Detector for MissingTtlExtension {
 
     fn detect<'a>(&self, ctx: &AnalysisContext<'a>, sink: &mut FindingSink<'a>) {
         let model = ctx.model();
+        // The rule is about a contract that never maintains its persistent entries.
+        // Extending a TTL from a dedicated keeper/`bump` entrypoint is the
+        // recommended pattern, so an entrypoint-scoped check would flag healthy
+        // contracts. Bail out as soon as *any* TTL extension exists.
+        if model.extends_any_ttl() {
+            return;
+        }
         for entrypoint in ctx.entrypoints() {
             if entrypoint.is_constructor {
                 continue;
@@ -172,11 +179,11 @@ impl Detector for MissingTtlExtension {
                     .storage_ops_in(name)
                     .any(|op| op.access.is_mutation() && op.tier == StorageTier::Persistent)
             });
-            if !writes_persistent || model.has_transitive_ttl_extension(&entrypoint.name) {
+            if !writes_persistent {
                 continue;
             }
             sink.report(format!(
-                "`{}` writes persistent entries without extending their TTL",
+                "`{}` writes persistent entries but the contract never extends a TTL",
                 entrypoint.name
             ))
             .primary(entrypoint.file, entrypoint.span)
