@@ -156,7 +156,9 @@ fn generated_source(rng: &mut Rng) -> String {
     let length = 1 + rng.below(48);
     let mut source = String::new();
     for _ in 0..length {
-        source.push_str(rng.pick(VOCABULARY));
+        // The element type is annotated so the call resolves the same way on every
+        // supported toolchain; inference alone picked `T = str` on older rustc.
+        source.push_str(rng.pick::<&str>(VOCABULARY));
         source.push(' ');
     }
     source
