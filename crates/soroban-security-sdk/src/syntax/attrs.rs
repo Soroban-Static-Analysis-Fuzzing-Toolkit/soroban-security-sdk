@@ -98,12 +98,25 @@ fn meta_mentions_test(attr: &Attribute) -> bool {
     walk_for_test(tokens.into_iter())
 }
 
+/// `test` anywhere except under `not(...)`, so `#[cfg(not(test))]` — code that
+/// exists only in production builds — is not mistaken for test code.
 fn walk_for_test(tokens: impl Iterator<Item = TokenTree>) -> bool {
+    let mut negated = false;
     for token in tokens {
         let found = match token {
-            TokenTree::Ident(ident) => ident == "test",
-            TokenTree::Group(group) => walk_for_test(group.stream().into_iter()),
-            _ => false,
+            TokenTree::Ident(ident) => {
+                negated = ident == "not";
+                ident == "test"
+            }
+            TokenTree::Group(group) => {
+                let inside = !negated && walk_for_test(group.stream().into_iter());
+                negated = false;
+                inside
+            }
+            _ => {
+                negated = false;
+                false
+            }
         };
         if found {
             return true;
@@ -144,6 +157,18 @@ mod tests {
             "#[cfg(feature = \"testing\")]\nfn f() {}"
         )));
         assert!(!is_test(&attrs_of("fn f() {}")));
+    }
+
+    #[test]
+    fn production_only_cfg_is_not_test_code() {
+        assert!(!is_test(&attrs_of("#[cfg(not(test))]\nfn f() {}")));
+        assert!(!is_test(&attrs_of(
+            "#[cfg(all(not(test), feature = \"x\"))]\nfn f() {}"
+        )));
+        // `test` outside the `not(...)` still counts.
+        assert!(is_test(&attrs_of(
+            "#[cfg(all(not(feature = \"x\"), test))]\nfn f() {}"
+        )));
     }
 
     #[test]

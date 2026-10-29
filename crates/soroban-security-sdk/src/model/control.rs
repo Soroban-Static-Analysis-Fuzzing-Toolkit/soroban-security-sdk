@@ -180,6 +180,10 @@ pub struct PanicSite {
     pub kind: PanicKind,
     /// Canonical text of the receiver (for `unwrap`) or indexed expression.
     pub on: Option<String>,
+    /// Parameters of the enclosing function that the panicking expression
+    /// mentions, e.g. `user` in `get(&DataKey::Balance(user)).unwrap()`. Empty
+    /// when the panic depends only on contract state or constants.
+    pub inputs: Vec<String>,
     /// Canonical text of the whole expression.
     pub text: String,
     /// Span of the expression.
@@ -259,6 +263,7 @@ mod tests {
     #[test]
     fn storage_unwraps_are_recognised() {
         let site = PanicSite {
+            inputs: Vec::new(),
             site: Site::new(FileId(0), "f", SourceSpan::point(1, 1)),
             kind: PanicKind::Unwrap,
             on: Some("env.storage().persistent().get(&KEY)".into()),

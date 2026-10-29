@@ -63,7 +63,7 @@ Soroban's three storage tiers are separate key spaces. A value written to `persi
 
 Amount arithmetic can wrap because release overflow checks are disabled.
 
-Rust disables integer overflow checks in release builds unless the crate opts in with `[profile.release] overflow-checks = true`. On an amount-like type such as `i128`, an overflow it not caught and the balance silently wraps, which is the classic token-mint bug.
+Rust disables integer overflow checks in release builds unless the crate opts in with `[profile.release] overflow-checks = true`. On an amount-like type such as `i128`, an overflow is not caught and the balance silently wraps, which is the classic token-mint bug.
 
 **Tags:** `arithmetic`, `overflow`, `token`
 
@@ -183,7 +183,7 @@ A custom account implements `__check_auth` to validate the signatures the host f
 
 A predictable ledger value is used as a source of randomness.
 
-Ledger timestamps and sequence numbers are known to whoever submits a transaction and can be ground until the outcome is favourable, so they are not usable as entropy for lotteries, mints or shuffles.
+Ledger timestamps and sequence numbers are known to whoever submits a transaction and can be ground until the outcome is favourable, so they are not usable as entropy for lotteries, mints or shuffles. Reported when the value is reduced or mixed (`%`, `^`, `&`); deadline comparisons and elapsed-time arithmetic are ordinary uses and are not reported.
 
 **Tags:** `randomness`, `entropy`, `lottery`
 
@@ -213,7 +213,7 @@ A contract upgrade is reachable without authorization.
 
 A panicking expression can abort a contract call.
 
-A panic aborts the entire transaction. When the panic is reachable from caller-controlled data it becomes a denial-of-service primitive: the caller pays the fee and the call cannot be recovered.
+A panic aborts the entire transaction. Reported when an `unwrap`, `expect` or index depends on a parameter of the enclosing function — most often a storage read keyed by a caller-supplied address that has no entry yet — and for `todo!`/`unimplemented!` left in contract code. Panics on contract state alone and explicit `panic!` rejections are treated as deliberate.
 
 **Tags:** `panic`, `dos`, `availability`
 

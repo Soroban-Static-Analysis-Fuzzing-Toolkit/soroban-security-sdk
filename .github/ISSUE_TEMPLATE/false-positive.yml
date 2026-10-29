@@ -1,0 +1,29 @@
+name: False positive
+description: A rule reported something that is not a problem.
+labels: ["false-positive", "detector"]
+body:
+  - type: input
+    id: rule
+    attributes:
+      label: Rule id
+      placeholder: SSDK013
+    validations:
+      required: true
+  - type: textarea
+    id: code
+    attributes:
+      label: Minimal code that triggers it
+      description: A contract snippet small enough to become a near-miss fixture.
+      render: rust
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it is not a problem
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: soroban-sec version or commit

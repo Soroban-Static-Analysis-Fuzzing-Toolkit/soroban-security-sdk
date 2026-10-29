@@ -1,6 +1,6 @@
 # soroban-security-sdk
 
-Developer-facing SDK for static analysis of [Soroban](https://soroban.stellar.org/)
+Developer-facing SDK for static analysis of [Soroban](https://developers.stellar.org/docs/build/smart-contracts/overview)
 smart contracts. It provides:
 
 1. **A detector framework.** A two-method [`Detector`] trait, the
@@ -13,7 +13,7 @@ smart contracts. It provides:
 3. **A resource-budget estimator.** Per entrypoint, the SDK estimates instruction
    count, memory, and ledger read/write entries, and compares them with
    configurable network limits.
-4. **A built-in rule catalogue** of fourteen Soroban-specific detectors, from
+4. **A built-in rule catalogue** of nineteen Soroban-specific detectors, from
    `missing-require-auth` to `overflow-checks-disabled`.
 
 ## Example

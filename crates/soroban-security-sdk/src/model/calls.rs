@@ -137,9 +137,12 @@ impl RandomnessSource {
 /// How a ledger value was used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RandomnessUse {
-    /// Used in integer arithmetic, e.g. `timestamp() % 100`.
+    /// Used to pick or mix values, e.g. `timestamp() % 100` or `sequence() ^ salt`.
     Arithmetic,
     /// Used in a comparison, e.g. `sequence() > deadline`.
+    ///
+    /// No longer produced by the model builder — deadline checks are not entropy —
+    /// but kept so downstream code that matches on it still compiles.
     Comparison,
 }
 

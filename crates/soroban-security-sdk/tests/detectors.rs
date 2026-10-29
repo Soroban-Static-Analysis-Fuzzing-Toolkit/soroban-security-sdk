@@ -94,6 +94,44 @@ impl Token {
 }
 
 #[test]
+fn sdk002_compares_local_key_variables_within_one_function_only() {
+    let report = analyze_source(
+        r#"
+#[contractimpl]
+impl Token {
+    pub fn set_admin(env: Env, admin: Address) {
+        admin.require_auth();
+        let key = DataKey::Admin;
+        env.storage().instance().set(&key, &admin);
+    }
+    pub fn set_balance(env: Env, id: Address, amount: i128) {
+        id.require_auth();
+        let key = DataKey::Balance(id);
+        env.storage().persistent().set(&key, &amount);
+        env.storage().persistent().extend_ttl(&key, 100, 1000);
+    }
+}
+"#,
+    );
+    assert!(!fired(&report, "SSDK002"));
+
+    // The same local key read through two tiers in one function is still caught.
+    let report = analyze_source(
+        r#"
+#[contractimpl]
+impl Token {
+    pub fn f(env: Env) {
+        let key = DataKey::Admin;
+        env.storage().persistent().set(&key, &1);
+        let _ = env.storage().instance().get(&key);
+    }
+}
+"#,
+    );
+    assert!(fired(&report, "SSDK002"));
+}
+
+#[test]
 fn sdk003_unchecked_token_arithmetic() {
     let report = analyze_source(
         r#"
@@ -217,6 +255,41 @@ impl Token {
 }
 
 #[test]
+fn sdk023_ignores_register_once_writes() {
+    let report = analyze_source(
+        r#"
+#[contractimpl]
+impl Account {
+    pub fn __constructor(env: Env, public_key: BytesN<32>) {
+        if env.storage().instance().has(&DataKey::Owner) {
+            panic!("owner is already set");
+        }
+        env.storage().instance().set(&DataKey::Owner, &public_key);
+    }
+}
+"#,
+    );
+    assert!(!fired(&report, "SSDK023"));
+}
+
+#[test]
+fn sdk008_allows_expiring_allowances_in_temporary_storage() {
+    let report = analyze_source(
+        r#"
+#[contractimpl]
+impl Token {
+    pub fn approve(env: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
+        from.require_auth();
+        let key = DataKey::Allowance(AllowanceDataKey { from, spender });
+        env.storage().temporary().set(&key, &AllowanceValue { amount, expiration_ledger });
+    }
+}
+"#,
+    );
+    assert!(!fired(&report, "SSDK008"));
+}
+
+#[test]
 fn sdk009_missing_ttl_extension() {
     let report = analyze_source(
         r#"
@@ -271,6 +344,30 @@ impl Account {
 }
 
 #[test]
+fn sdk010_accepts_delegated_authorization() {
+    // Forwarding to delegate signers, an executor's `require_auth_for_args`, or a
+    // shared library in another crate are all ways a hook verifies the caller.
+    for hook in [
+        "for d in env.custom_account().get_delegated_signers().iter() { env.custom_account().delegate_auth(&d); } Ok(())",
+        "let executor: Address = load_executor(&env); executor.require_auth_for_args(args); Ok(())",
+        "smart_account::do_check_auth(&env, &payload, &signatures, &contexts)",
+    ] {
+        let source = format!(
+            r#"
+#[contractimpl]
+impl CustomAccountInterface for Account {{
+    fn __check_auth(env: Env, payload: Hash<32>, signatures: Vec<Sig>, contexts: Vec<Context>) -> Result<(), Error> {{
+        {hook}
+    }}
+}}
+"#
+        );
+        let report = analyze_source(&source);
+        assert!(!fired(&report, "SSDK010"), "fired for: {hook}");
+    }
+}
+
+#[test]
 fn sdk011_predictable_randomness() {
     let report = analyze_source(
         r#"
@@ -306,9 +403,48 @@ fn sdk013_panic_on_caller_input() {
         r#"
 #[contractimpl]
 impl Token {
-    pub fn get(env: Env) -> i128 {
-        env.storage().persistent().get(&K).unwrap()
+    pub fn balance(env: Env, id: Address) -> i128 {
+        env.storage().persistent().get(&DataKey::Balance(id)).unwrap()
     }
+}
+"#,
+    );
+    assert!(fired(&report, "SSDK013"));
+}
+
+#[test]
+fn sdk013_ignores_invariants_and_explicit_rejections() {
+    let report = analyze_source(
+        r#"
+#[contractimpl]
+impl Token {
+    pub fn admin(env: Env) -> Address {
+        env.storage().instance().get(&DataKey::Admin).unwrap()
+    }
+    pub fn mint(env: Env, amount: i128) {
+        if amount < 0 { panic!("negative amount"); }
+        let supply: i128 = env.storage().instance().get(&DataKey::Supply).unwrap_or(0);
+        let next = supply.checked_add(amount).expect("supply overflow");
+        env.storage().instance().set(&DataKey::Supply, &next);
+    }
+    pub fn first(env: Env, items: Vec<u32>) -> u32 { pick(items) }
+}
+// A helper's parameters are not direct caller input.
+impl Token {
+    fn pick(items: Vec<u32>) -> u32 { items.get(0).unwrap() }
+}
+"#,
+    );
+    assert!(!fired(&report, "SSDK013"));
+}
+
+#[test]
+fn sdk013_flags_unfinished_code() {
+    let report = analyze_source(
+        r#"
+#[contractimpl]
+impl Token {
+    pub fn burn(env: Env) { todo!() }
 }
 "#,
     );

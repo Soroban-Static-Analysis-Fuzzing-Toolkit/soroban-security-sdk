@@ -4,7 +4,9 @@ use crate::category::Category;
 use crate::context::AnalysisContext;
 use crate::detector::Detector;
 use crate::finding::FindingSink;
-use crate::model::{StorageAccess, StorageTier};
+use std::collections::BTreeMap;
+
+use crate::model::{StorageAccess, StorageOp, StorageTier};
 use crate::rule::{DetectorMeta, Reference, RuleId};
 use crate::severity::{Confidence, Severity};
 
@@ -37,7 +39,7 @@ impl Detector for StorageTierConfusion {
     )]);
 
     fn detect<'a>(&self, ctx: &AnalysisContext<'a>, sink: &mut FindingSink<'a>) {
-        for (key, ops) in ctx.model().storage_ops_by_key() {
+        for (key, ops) in keys_by_meaning(ctx.model().storage_ops_by_key()) {
             let mut tiers: Vec<StorageTier> = ops
                 .iter()
                 .map(|op| op.tier)
@@ -74,6 +76,40 @@ impl Detector for StorageTierConfusion {
 }
 
 crate::declare_detector!(StorageTierConfusion);
+
+/// Regroup storage operations so each group is one logical key.
+///
+/// A path or constant (`DataKey::Admin`, `COUNTER`) names the same key wherever it
+/// appears. A local variable or parameter (`key`, `count_key`) does not: two
+/// helpers that each build a `key` are talking about different entries, so such
+/// keys are only compared within one function.
+fn keys_by_meaning<'m>(
+    grouped: BTreeMap<&'m str, Vec<&'m StorageOp>>,
+) -> Vec<(String, Vec<&'m StorageOp>)> {
+    let mut regrouped: BTreeMap<(String, String), Vec<&StorageOp>> = BTreeMap::new();
+    for (key, ops) in grouped {
+        let local = key
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_lowercase() || first == '_')
+            && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        for op in ops {
+            let scope = if local {
+                op.site.function.clone()
+            } else {
+                String::new()
+            };
+            regrouped
+                .entry((key.to_string(), scope))
+                .or_default()
+                .push(op);
+        }
+    }
+    regrouped
+        .into_iter()
+        .map(|((key, _), ops)| (key, ops))
+        .collect()
+}
 
 /// `SSDK008`: a write to the `temporary` tier of a key that looks long-lived.
 ///
@@ -242,14 +278,12 @@ impl Detector for UnboundedEntryGrowth {
             for write in writes {
                 // A write that replaces the value outright may well be a bounded
                 // collection, so only the append shape is reported: the same key is
-                // read in the same function, or the write sits inside a loop.
+                // read in the same function, or the write sits inside a loop. Only a
+                // `get` counts as the read — a `has` guard ("register once") or a
+                // TTL query cannot feed the old value into the new one.
                 let appends = write.site.in_loop
                     || ops.iter().any(|op| {
-                        op.site.function == write.site.function
-                            && matches!(
-                                op.access,
-                                StorageAccess::Get | StorageAccess::Has | StorageAccess::GetTtl
-                            )
+                        op.site.function == write.site.function && op.access == StorageAccess::Get
                     });
                 if !appends {
                     continue;
@@ -287,8 +321,11 @@ impl Detector for UnboundedEntryGrowth {
 crate::declare_detector!(UnboundedEntryGrowth);
 
 /// Whether a key variant name suggests state that must outlive its TTL.
+///
+/// Allowances are deliberately absent: SEP-41 tokens, including the Stellar Asset
+/// Contract, keep them in `temporary` storage with an expiration ledger.
 fn looks_long_lived(variant: &str) -> bool {
-    const MARKERS: [&str; 10] = [
+    const MARKERS: [&str; 9] = [
         "admin",
         "owner",
         "authority",
@@ -297,7 +334,6 @@ fn looks_long_lived(variant: &str) -> bool {
         "supply",
         "total",
         "balance",
-        "allowance",
         "reserve",
     ];
     let lower = variant.to_ascii_lowercase();

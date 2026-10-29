@@ -7,7 +7,8 @@
 //! Detector modules typically need only this prelude plus [`crate::declare_detector!`].
 
 pub use crate::analysis::{
-    analyze, analyze_with, AnalysisReport, Diagnostic, DiagnosticKind, Project, ProjectBuilder,
+    analyze, analyze_with, analyze_workspace, AnalysisReport, Diagnostic, DiagnosticKind, Project,
+    ProjectBuilder, Workspace,
 };
 pub use crate::budget::{BudgetAxis, BudgetReport, BudgetViolation, EntrypointBudget};
 pub use crate::category::Category;

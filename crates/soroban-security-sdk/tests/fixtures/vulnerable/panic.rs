@@ -1,14 +1,15 @@
-//! `unwrap` on a storage read aborts the call when the entry is absent.
+//! `unwrap` on a storage read keyed by a caller-supplied address: any address
+//! that has never held a balance aborts the call instead of reading as zero.
 //! Expected: SSDK013.
 
-use soroban_sdk::{contractimpl, Env};
+use soroban_sdk::{contractimpl, Address, Env};
 
 #[contractimpl]
 impl Token {
-    pub fn balance(env: Env) -> i128 {
+    pub fn balance(env: Env, id: Address) -> i128 {
         env.storage()
             .persistent()
-            .get(&DataKey::Balance)
+            .get(&DataKey::Balance(id))
             .unwrap()
     }
 }

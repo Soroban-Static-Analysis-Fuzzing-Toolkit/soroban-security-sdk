@@ -104,12 +104,26 @@ impl Detector for CheckAuthWithoutVerification {
     fn detect<'a>(&self, ctx: &AnalysisContext<'a>, sink: &mut FindingSink<'a>) {
         let model = ctx.model();
         for entrypoint in ctx.entrypoints().filter(|entry| entry.is_check_auth) {
+            // A signature check, or handing the decision to another account with
+            // `require_auth`/`delegate_auth`, both count as verification.
             let verifies = model.has_transitive(&entrypoint.name, |name| {
-                model
-                    .auth_in(name)
-                    .any(|check| check.kind == AuthKind::VerifySignature)
+                model.auth_in(name).any(|check| {
+                    check.kind == AuthKind::VerifySignature
+                        || check.kind.establishes_authorization()
+                })
             });
             if verifies {
+                continue;
+            }
+            // Delegating to a library outside this package (e.g. a shared
+            // smart-account implementation) cannot be judged from here.
+            let delegates = model.has_transitive(&entrypoint.name, |name| {
+                model
+                    .external_calls
+                    .get(name)
+                    .is_some_and(|calls| !calls.is_empty())
+            });
+            if delegates {
                 continue;
             }
             sink.report(format!(

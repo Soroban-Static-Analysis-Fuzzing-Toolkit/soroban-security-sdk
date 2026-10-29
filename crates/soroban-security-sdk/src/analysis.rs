@@ -77,22 +77,133 @@ impl Project {
         } else {
             root.to_path_buf()
         };
-
         let paths = if root.is_file() {
             vec![root.to_path_buf()]
         } else {
-            collect_rust_files(root)?
+            collect_rust_files(root, false)?
         };
-        if paths.is_empty() {
+        Project::load(root, base.clone(), &base, paths)
+    }
+
+    /// Load every Cargo package under `root` as a project of its own.
+    ///
+    /// A repository such as `soroban-examples` holds dozens of independent
+    /// contracts. Loading it with [`Project::from_dir`] merges them into one model,
+    /// so two unrelated contracts that both name a key `DataKey::Balance`, or both
+    /// define a helper called `authorize`, are treated as one. Here each directory
+    /// with a `[package]` manifest is loaded separately (nested packages are not
+    /// double-counted), and report paths stay relative to `root`.
+    ///
+    /// Packages that do not depend on `soroban-sdk` — command-line tools, proof
+    /// generators — are skipped and listed in [`Workspace::diagnostics`]. A tree
+    /// with no manifest at all falls back to [`Project::from_dir`].
+    pub fn from_workspace(root: impl AsRef<Path>) -> Result<Workspace> {
+        let root = root.as_ref();
+        if !root.exists() {
+            return Err(Error::NotFound {
+                path: root.to_path_buf(),
+            });
+        }
+        let packages = if root.is_dir() {
+            discover_packages(root)?
+        } else {
+            Vec::new()
+        };
+        if packages.is_empty() {
+            return Ok(Workspace {
+                projects: vec![Project::from_dir(root)?],
+                diagnostics: Vec::new(),
+            });
+        }
+
+        let mut projects = Vec::new();
+        let mut skipped = Vec::new();
+        let mut harnesses = Vec::new();
+        for package in packages {
+            let display = display_path(root, &package);
+            let display = if display.is_empty() {
+                ".".to_string()
+            } else {
+                display
+            };
+            // `cargo fuzz` targets and test-only crates are never deployed.
+            if display
+                .split('/')
+                .any(|part| matches!(part, "fuzz" | "tests" | "benches"))
+            {
+                harnesses.push(display);
+                continue;
+            }
+            let paths = collect_rust_files(&package, true)?;
+            if paths.is_empty() {
+                continue;
+            }
+            let project = match Project::load(&package, package.clone(), root, paths) {
+                Ok(project) => project,
+                Err(Error::NoContracts { .. }) => continue,
+                Err(err) => return Err(err),
+            };
+            if project
+                .package
+                .as_ref()
+                .is_some_and(|info| !info.depends_on_soroban_sdk)
+            {
+                skipped.push(display);
+                continue;
+            }
+            projects.push(project);
+        }
+
+        let mut diagnostics = Vec::new();
+        if !skipped.is_empty() {
+            diagnostics.push(Diagnostic::new(
+                DiagnosticKind::Manifest,
+                format!(
+                    "skipped {} package(s) that do not depend on soroban-sdk: {}",
+                    skipped.len(),
+                    skipped.join(", ")
+                ),
+            ));
+        }
+        if !harnesses.is_empty() {
+            diagnostics.push(Diagnostic::new(
+                DiagnosticKind::Manifest,
+                format!(
+                    "skipped {} test or fuzz package(s): {}",
+                    harnesses.len(),
+                    harnesses.join(", ")
+                ),
+            ));
+        }
+        if projects.is_empty() {
             return Err(Error::NoContracts {
                 path: root.to_path_buf(),
+            });
+        }
+        Ok(Workspace {
+            projects,
+            diagnostics,
+        })
+    }
+
+    /// Parse `paths`, showing them relative to `display_base`, and read the
+    /// manifest in `base`.
+    fn load(
+        requested: &Path,
+        base: PathBuf,
+        display_base: &Path,
+        paths: Vec<PathBuf>,
+    ) -> Result<Self> {
+        if paths.is_empty() {
+            return Err(Error::NoContracts {
+                path: requested.to_path_buf(),
             });
         }
 
         let mut diagnostics = Vec::new();
         let mut sources: Vec<SourceFile> = Vec::new();
         for path in paths {
-            let display = display_path(&base, &path);
+            let display = display_path(display_base, &path);
             match std::fs::read_to_string(&path) {
                 Ok(text) => {
                     let id = FileId(sources.len() as u32);
@@ -113,8 +224,11 @@ impl Project {
 
         let manifest_path = base.join("Cargo.toml");
         let package = if manifest_path.is_file() {
-            match PackageInfo::load(&manifest_path) {
-                Ok(info) => Some(info),
+            match PackageInfo::load_in_workspace(&manifest_path) {
+                Ok(mut info) => {
+                    info.display_path = display_path(display_base, &manifest_path);
+                    Some(info)
+                }
                 Err(err) => {
                     diagnostics.push(Diagnostic::new(DiagnosticKind::Manifest, err.to_string()));
                     None
@@ -449,6 +563,49 @@ pub fn analyze_with(
     }
 }
 
+/// Every contract package found under a directory; see [`Project::from_workspace`].
+#[derive(Debug)]
+pub struct Workspace {
+    /// One project per package that depends on `soroban-sdk`.
+    pub projects: Vec<Project>,
+    /// Workspace-level notes, such as packages that were skipped.
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Analyse each package under `root` separately and merge the results.
+///
+/// This is what the `soroban-sec` command line runs on a directory. Use
+/// [`analyze`] on a single [`Project`] when a compiled `.wasm` module should be
+/// attached, since a module belongs to exactly one package.
+///
+/// ```no_run
+/// use soroban_security_sdk::prelude::*;
+///
+/// let report = analyze_workspace("contracts", &AnalysisConfig::default())?;
+/// println!("{}", report.summary());
+/// # Ok::<(), soroban_security_sdk::Error>(())
+/// ```
+pub fn analyze_workspace(
+    root: impl AsRef<Path>,
+    config: &AnalysisConfig,
+) -> Result<AnalysisReport> {
+    let workspace = Project::from_workspace(root)?;
+    let mut reports = workspace
+        .projects
+        .iter()
+        .map(|project| analyze(project, config));
+    let mut merged = reports.next().ok_or_else(|| Error::NoContracts {
+        path: PathBuf::from("."),
+    })?;
+    for report in reports {
+        merged.merge(report);
+    }
+    for diagnostic in workspace.diagnostics {
+        merged.push_diagnostic(diagnostic);
+    }
+    Ok(merged)
+}
+
 /// A non-fatal problem encountered while loading or analysing a project.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Diagnostic {
@@ -557,6 +714,33 @@ pub struct AnalysisReport {
 }
 
 impl AnalysisReport {
+    /// Fold another package's report into this one.
+    ///
+    /// Findings stay ordered by severity then position, and a diagnostic that
+    /// every package raised (such as "no wasm supplied") is kept once.
+    pub fn merge(&mut self, other: AnalysisReport) {
+        self.findings.extend(other.findings);
+        self.findings.sort_by_key(Finding::sort_key);
+        self.suppressed.extend(other.suppressed);
+        self.budget.entrypoints.extend(other.budget.entrypoints);
+        if self.budget.module.is_none() {
+            self.budget.module = other.budget.module;
+        }
+        if self.rules.is_empty() {
+            self.rules = other.rules;
+        }
+        for diagnostic in other.diagnostics {
+            self.push_diagnostic(diagnostic);
+        }
+    }
+
+    /// Add a diagnostic unless an identical one is already recorded.
+    fn push_diagnostic(&mut self, diagnostic: Diagnostic) {
+        if !self.diagnostics.contains(&diagnostic) {
+            self.diagnostics.push(diagnostic);
+        }
+    }
+
     /// Whether the run produced no findings.
     pub fn is_empty(&self) -> bool {
         self.findings.is_empty()
@@ -631,7 +815,10 @@ impl AnalysisReport {
 }
 
 /// Recursively collect `.rs` files under `root`, skipping build and VCS output.
-fn collect_rust_files(root: &Path) -> Result<Vec<PathBuf>> {
+/// Rust files under `root`, skipping `target/` and hidden directories. With
+/// `stop_at_packages`, a subdirectory that is a Cargo package of its own is left
+/// for that package to load.
+fn collect_rust_files(root: &Path, stop_at_packages: bool) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(directory) = stack.pop() {
@@ -646,6 +833,9 @@ fn collect_rust_files(root: &Path) -> Result<Vec<PathBuf>> {
             let path = entry.path();
             let file_type = entry.file_type().map_err(Error::io(path.as_path()))?;
             if file_type.is_dir() {
+                if stop_at_packages && is_package_dir(&path) {
+                    continue;
+                }
                 stack.push(path);
             } else if path.extension().is_some_and(|extension| extension == "rs") {
                 files.push(path);
@@ -654,6 +844,40 @@ fn collect_rust_files(root: &Path) -> Result<Vec<PathBuf>> {
     }
     files.sort();
     Ok(files)
+}
+
+/// Directories under `root` (including `root`) whose `Cargo.toml` declares a
+/// `[package]`.
+fn discover_packages(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut packages = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(directory) = stack.pop() {
+        if is_package_dir(&directory) {
+            packages.push(directory.clone());
+        }
+        let entries = std::fs::read_dir(&directory).map_err(Error::io(directory.as_path()))?;
+        for entry in entries {
+            let entry = entry.map_err(Error::io(directory.as_path()))?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name == "target" || name.starts_with('.') {
+                continue;
+            }
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                stack.push(entry.path());
+            }
+        }
+    }
+    packages.sort();
+    Ok(packages)
+}
+
+/// Whether `directory` holds a `Cargo.toml` with a `[package]` table.
+fn is_package_dir(directory: &Path) -> bool {
+    std::fs::read_to_string(directory.join("Cargo.toml")).is_ok_and(|text| {
+        text.parse::<toml::Table>()
+            .is_ok_and(|table| table.contains_key("package"))
+    })
 }
 
 /// Path shown in reports: relative to the project root, with forward slashes.

@@ -163,11 +163,13 @@ impl<'a> FunctionView<'a> {
         has_attr(self.impl_attrs, "contractimpl")
     }
 
-    /// Whether the function is exported as a contract entrypoint.
+    /// Whether the function is exported as a contract entrypoint: a `pub` method
+    /// of a `#[contractimpl]` block, or any method of a `#[contractimpl]` trait
+    /// implementation (trait items cannot be marked `pub`).
     pub fn is_entrypoint(&self) -> bool {
         self.has_body
             && self.in_contract_impl()
-            && self.is_public()
+            && (self.is_public() || self.trait_path.is_some())
             && !self.is_test()
             && self.sig.receiver().is_none()
     }
@@ -198,7 +200,7 @@ impl<'a> FunctionView<'a> {
 
     /// Whether the function is a private helper of a contract implementation.
     pub fn is_private_helper(&self) -> bool {
-        self.in_contract_impl() && !self.is_public()
+        self.in_contract_impl() && !self.is_public() && self.trait_path.is_none()
     }
 
     /// Parameters, with their classifications.
@@ -428,10 +430,10 @@ impl TokenInterface for Token {
         let collected = collect(&file, FileId(0));
         assert_eq!(collected.len(), 1);
         assert!(collected[0].in_contract_impl());
-        assert!(
-            !collected[0].is_entrypoint(),
-            "non-pub trait method is not exported"
-        );
+        // `#[contractimpl]` exports every method of a trait implementation; trait
+        // items cannot carry `pub`, so visibility says nothing here.
+        assert!(collected[0].is_entrypoint());
+        assert!(!collected[0].is_private_helper());
         assert_eq!(collected[0].contract_name().as_deref(), Some("Token"));
         assert_eq!(
             collected[0]

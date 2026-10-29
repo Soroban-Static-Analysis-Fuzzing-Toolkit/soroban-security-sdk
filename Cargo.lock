@@ -511,7 +511,7 @@ dependencies = [
 
 [[package]]
 name = "soroban-sec"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -521,7 +521,7 @@ dependencies = [
 
 [[package]]
 name = "soroban-sec-fuzz"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "pretty_assertions",
  "proptest",
@@ -529,7 +529,7 @@ dependencies = [
 
 [[package]]
 name = "soroban-security-sdk"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "inventory",
  "pretty_assertions",

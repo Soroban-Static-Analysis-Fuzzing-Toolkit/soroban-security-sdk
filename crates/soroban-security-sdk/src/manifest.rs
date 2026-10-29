@@ -23,6 +23,8 @@ pub struct PackageInfo {
     pub edition: Option<String>,
     /// Path to the manifest.
     pub manifest_path: PathBuf,
+    /// Manifest path as shown in reports, relative to the analysed root.
+    pub display_path: String,
     /// Directory containing the manifest.
     pub root: PathBuf,
     /// Whether `soroban-sdk` appears in any dependency table.
@@ -124,6 +126,7 @@ impl PackageInfo {
             name,
             version,
             edition,
+            display_path: "Cargo.toml".to_string(),
             manifest_path,
             root,
             depends_on_soroban_sdk,
@@ -141,6 +144,28 @@ impl PackageInfo {
         PackageInfo::parse(&text, path)
     }
 
+    /// Load a package manifest with the release profile Cargo will actually use.
+    ///
+    /// Cargo ignores `[profile]` sections in workspace members and applies the
+    /// workspace root's instead, so a member crate's `overflow-checks` comes from
+    /// the nearest ancestor manifest with a `[workspace]` table, when there is one.
+    pub fn load_in_workspace(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        let mut info = PackageInfo::load(path)?;
+        let Some(workspace) = find_workspace_manifest(path) else {
+            return Ok(info);
+        };
+        if workspace == path {
+            return Ok(info);
+        }
+        if let Ok(root) = PackageInfo::load(&workspace) {
+            info.release_overflow_checks = root.release_overflow_checks;
+            info.release_panic = root.release_panic;
+            info.release_opt_level = root.release_opt_level;
+        }
+        Ok(info)
+    }
+
     /// Whether the crate looks like a Soroban contract that is built for deploy.
     pub fn is_contract_crate(&self) -> bool {
         self.depends_on_soroban_sdk
@@ -150,6 +175,24 @@ impl PackageInfo {
     pub fn display_name(&self) -> &str {
         self.name.as_deref().unwrap_or("<unnamed>")
     }
+}
+
+/// The nearest manifest at or above `manifest`'s directory with a `[workspace]`
+/// table.
+fn find_workspace_manifest(manifest: &Path) -> Option<PathBuf> {
+    let start = std::fs::canonicalize(manifest).ok()?;
+    start.ancestors().skip(1).find_map(|directory| {
+        let candidate = directory.join("Cargo.toml");
+        let text = std::fs::read_to_string(&candidate).ok()?;
+        let table: toml::Table = text.parse().ok()?;
+        table.contains_key("workspace").then(|| {
+            if candidate == start {
+                manifest.to_path_buf()
+            } else {
+                candidate
+            }
+        })
+    })
 }
 
 #[cfg(test)]

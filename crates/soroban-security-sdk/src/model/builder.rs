@@ -19,7 +19,7 @@ use crate::model::{
 };
 use crate::source::{FileId, SourceMap};
 use crate::span::SourceSpan;
-use crate::syntax::attrs::{has_attr, is_test};
+use crate::syntax::attrs::{attr_name, has_attr, is_test};
 use crate::syntax::exprs::{ident_of, literal_int, unwrap_refs};
 use crate::syntax::functions::{classify_type, params_of};
 use crate::syntax::paths::{
@@ -30,8 +30,13 @@ use crate::syntax::{Expr, ParamKind};
 
 pub(crate) fn build(sources: &SourceMap, include_tests: bool) -> ContractModel {
     let mut builder = Builder::new(include_tests);
+    let test_files = if include_tests {
+        Default::default()
+    } else {
+        super::test_files::test_only_files(sources)
+    };
     for source in sources.iter() {
-        builder.begin_file(source.id());
+        builder.begin_file(source.id(), test_files.contains(&source.id()));
         builder.visit_file(source.syntax());
     }
     builder.finish()
@@ -42,6 +47,8 @@ pub(crate) fn build(sources: &SourceMap, include_tests: bool) -> ContractModel {
 struct ImplCtx {
     contract: Option<String>,
     in_contract_impl: bool,
+    /// `impl Trait for Contract`: every method is exported, with no `pub`.
+    is_trait_impl: bool,
     is_test: bool,
 }
 
@@ -71,6 +78,10 @@ struct Builder {
     declared_contracts: Vec<(String, FileId, SourceSpan)>,
     impl_contracts: Vec<(String, FileId, SourceSpan)>,
     defined_functions: BTreeSet<String>,
+    /// `let name = <key expression>` bindings in scope, innermost last.
+    key_bindings: Vec<(String, String)>,
+    /// `(caller, path, last segment)` for every `module::function(..)` call.
+    module_calls: Vec<(String, String, String)>,
 }
 
 impl Builder {
@@ -88,14 +99,17 @@ impl Builder {
             declared_contracts: Vec::new(),
             impl_contracts: Vec::new(),
             defined_functions: BTreeSet::new(),
+            key_bindings: Vec::new(),
+            module_calls: Vec::new(),
         }
     }
 
-    fn begin_file(&mut self, file: FileId) {
+    /// Start a file; a test-only file is skipped as if wrapped in `#[cfg(test)]`.
+    fn begin_file(&mut self, file: FileId, test_only: bool) {
         self.file = file;
         self.impl_ctx = None;
         self.function = None;
-        self.test_depth = 0;
+        self.test_depth = usize::from(test_only);
         self.loop_depth = 0;
         self.guarded_depth = 0;
     }
@@ -197,6 +211,93 @@ impl Builder {
         self.function = Some(ctx);
     }
 
+    /// Canonical text of a storage key, looking through a local binding.
+    ///
+    /// `let key = DataKey::Balance(id); storage.set(&key, ..)` is recorded under
+    /// `DataKey::Balance(id)`, so two functions that each call their key `key`
+    /// are not mistaken for one entry, and one that reuses the name for two
+    /// different keys in separate branches is not either.
+    fn resolve_key(&self, key: &Expr) -> String {
+        let text = canonical(key);
+        self.key_bindings
+            .iter()
+            .rev()
+            .find(|(name, _)| *name == text)
+            .and_then(|(_, bound)| (!bound.is_empty()).then(|| bound.clone()))
+            .unwrap_or(text)
+    }
+
+    /// Parameters of the enclosing function that `expr` mentions, excluding the
+    /// `Env`, in first-mention order.
+    fn parameters_in(&self, expr: &Expr) -> Vec<String> {
+        struct Idents(Vec<String>);
+        impl<'ast> Visit<'ast> for Idents {
+            fn visit_path(&mut self, path: &'ast syn::Path) {
+                if let Some(ident) = path.get_ident() {
+                    self.0.push(ident.to_string());
+                }
+                syn::visit::visit_path(self, path);
+            }
+        }
+        let Some(ctx) = &self.function else {
+            return Vec::new();
+        };
+        let mut idents = Idents(Vec::new());
+        idents.visit_expr(expr);
+        let mut inputs: Vec<String> = Vec::new();
+        for ident in idents.0 {
+            if ctx.parameters.contains(&ident)
+                && ctx.env.get(&ident) != Some(&ParamKind::Env)
+                && !inputs.contains(&ident)
+            {
+                inputs.push(ident);
+            }
+        }
+        inputs
+    }
+
+    /// Access-control attribute macros that expand to a `require_auth` call.
+    ///
+    /// OpenZeppelin's Stellar contracts gate entrypoints with `#[only_owner]`,
+    /// `#[only_admin]`, `#[only_role(caller, "role")]` and
+    /// `#[only_any_role(caller, [..])]`; each inserts `require_auth` on the owner,
+    /// admin or named parameter before the body runs. `#[has_role]` checks role
+    /// membership only and is deliberately not treated as authorization.
+    fn record_auth_attributes(&mut self, attrs: &[syn::Attribute]) {
+        for attr in attrs {
+            let Some(name) = attr_name(attr) else {
+                continue;
+            };
+            if !matches!(
+                name.as_str(),
+                "only_owner" | "only_admin" | "only_role" | "only_any_role"
+            ) {
+                continue;
+            }
+            let span = SourceSpan::of(attr);
+            let target = match &attr.meta {
+                syn::Meta::List(list) => list
+                    .parse_args_with(
+                        syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated,
+                    )
+                    .ok()
+                    .and_then(|args| {
+                        args.first()
+                            .map(|first| (canonical(first), SourceSpan::of(first)))
+                    }),
+                _ => None,
+            };
+            self.model.auth_checks.push(AuthCheck {
+                site: self.site(span),
+                kind: AuthKind::RequireAuth,
+                target: target.as_ref().map(|(text, _)| text.clone()),
+                target_span: target.map(|(_, span)| span),
+                args: None,
+                call_span: span,
+            });
+        }
+    }
+
     fn exit_function(&mut self) {
         self.function = None;
         self.loop_depth = 0;
@@ -238,6 +339,14 @@ impl Builder {
         // Drop call-graph edges that do not point at a function defined in the
         // analysed sources (method names such as `Vec::new` produce noise).
         let known = std::mem::take(&mut self.defined_functions);
+        for (caller, path, name) in std::mem::take(&mut self.module_calls) {
+            if !known.contains(&name) {
+                let calls = self.model.external_calls.entry(caller).or_default();
+                if !calls.contains(&path) {
+                    calls.push(path);
+                }
+            }
+        }
         let graph = std::mem::take(&mut self.model.call_graph);
         let mut filtered: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for (caller, callees) in graph {
@@ -292,20 +401,24 @@ impl Builder {
         match method.as_str() {
             "unwrap" => {
                 let on = canonical(&node.receiver);
+                let inputs = self.parameters_in(&node.receiver);
                 self.model.panics.push(PanicSite {
                     site: self.site(span),
                     kind: PanicKind::Unwrap,
                     on: Some(on),
+                    inputs,
                     text: canonical(node),
                     span,
                 });
             }
             "expect" => {
                 let on = canonical(&node.receiver);
+                let inputs = self.parameters_in(&node.receiver);
                 self.model.panics.push(PanicSite {
                     site: self.site(span),
                     kind: PanicKind::Expect,
                     on: Some(on),
+                    inputs,
                     text: canonical(node),
                     span,
                 });
@@ -318,7 +431,7 @@ impl Builder {
             if let Some(tier) = tier_of(node) {
                 let key = storage_key_expr(node, tier, access);
                 let value = storage_value_expr(node, access);
-                let key_text = key.map(canonical);
+                let key_text = key.map(|key| self.resolve_key(key));
                 let key_span = key.map(SourceSpan::of);
                 let value_text = value.map(canonical);
                 let mut integer_ty = None;
@@ -392,6 +505,18 @@ impl Builder {
                 target,
                 target_span,
                 args,
+                call_span: span,
+            });
+        } else if method == "delegate_auth" && receiver_chain_has(node, "custom_account") {
+            // `env.custom_account().delegate_auth(&signer)` forwards the current
+            // authorization to another account, which then authorizes it.
+            let first = nth_arg(node, 0);
+            self.model.auth_checks.push(AuthCheck {
+                site: self.site(span),
+                kind: AuthKind::RequireAuth,
+                target: first.map(canonical),
+                target_span: first.map(SourceSpan::of),
+                args: None,
                 call_span: span,
             });
         } else if is_verification_call(&method, receiver_chain_has(node, "crypto")) {
@@ -511,18 +636,9 @@ impl Builder {
                 | syn::BinOp::Gt(_)
                 | syn::BinOp::Ge(_)
         );
+        // Comparing a ledger value against a deadline or expiry is ordinary time
+        // logic, not entropy, so comparisons are never recorded as randomness.
         if comparison {
-            if let Some((source, source_span)) =
-                ledger_read(&node.left).or_else(|| ledger_read(&node.right))
-            {
-                self.model.randomness.push(RandomnessSite {
-                    site: self.site(span),
-                    source,
-                    use_kind: RandomnessUse::Comparison,
-                    text: canonical(node),
-                    span: source_span,
-                });
-            }
             return;
         }
 
@@ -548,8 +664,13 @@ impl Builder {
         let typed = matches!(left_type, ParamKind::Integer(_))
             || matches!(right_type, ParamKind::Integer(_));
 
-        if let Some((source, source_span)) =
-            ledger_read(&node.left).or_else(|| ledger_read(&node.right))
+        // Only the operators that pick or mix values — `ts % n`, `seq ^ salt`,
+        // `ts & mask` — use a ledger value as entropy. Elapsed-time and epoch math
+        // (`now - start`, `seq / period`) is how contracts are meant to use it.
+        let entropy_shaped = matches!(op, IntegerOp::Rem | IntegerOp::BitXor | IntegerOp::BitAnd);
+        if let Some((source, source_span)) = ledger_read(&node.left)
+            .or_else(|| ledger_read(&node.right))
+            .filter(|_| entropy_shaped)
         {
             self.model.randomness.push(RandomnessSite {
                 site: self.site(span),
@@ -615,6 +736,30 @@ impl Builder {
 }
 
 impl<'ast> Visit<'ast> for Builder {
+    fn visit_block(&mut self, node: &'ast syn::Block) {
+        let scope = self.key_bindings.len();
+        syn::visit::visit_block(self, node);
+        self.key_bindings.truncate(scope);
+    }
+
+    fn visit_local(&mut self, node: &'ast syn::Local) {
+        syn::visit::visit_local(self, node);
+        let Some((name, _)) = binding_of(&node.pat) else {
+            return;
+        };
+        // Only key-shaped initialisers are tracked: a path (`DataKey::Admin`), an
+        // enum or struct constructor (`DataKey::Balance(id)`), or a clone of one.
+        // Anything else shadows an outer binding of the same name.
+        let bound = node.init.as_ref().and_then(|init| match &*init.expr {
+            Expr::Path(_) | Expr::Call(_) | Expr::Struct(_) => Some(self.resolve_key(&init.expr)),
+            Expr::MethodCall(call) if call.method == "clone" && call.args.is_empty() => {
+                Some(self.resolve_key(&call.receiver))
+            }
+            _ => None,
+        });
+        self.key_bindings.push((name, bound.unwrap_or_default()));
+    }
+
     fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
         let is_test_module = is_test(&node.attrs);
         if is_test_module {
@@ -680,6 +825,7 @@ impl<'ast> Visit<'ast> for Builder {
             &node.sig,
             Some(&node.block),
         );
+        self.record_auth_attributes(&node.attrs);
         syn::visit::visit_item_fn(self, node);
         self.exit_function();
     }
@@ -695,6 +841,7 @@ impl<'ast> Visit<'ast> for Builder {
         self.impl_ctx = Some(ImplCtx {
             contract: contract.clone(),
             in_contract_impl,
+            is_trait_impl: node.trait_.is_some(),
             is_test: is_test(&node.attrs) || inherited_test,
         });
         if in_contract_impl && !self.skip() {
@@ -717,7 +864,10 @@ impl<'ast> Visit<'ast> for Builder {
             .impl_ctx
             .as_ref()
             .is_some_and(|ctx| ctx.in_contract_impl);
-        let is_public = matches!(node.vis, syn::Visibility::Public(_));
+        // Methods of `#[contractimpl] impl Trait for Contract` are exported even
+        // though trait items cannot be marked `pub`.
+        let is_public = matches!(node.vis, syn::Visibility::Public(_))
+            || self.impl_ctx.as_ref().is_some_and(|ctx| ctx.is_trait_impl);
         if in_contract_impl && is_public && node.sig.receiver().is_none() {
             let name = node.sig.ident.to_string();
             let params = params_of(&node.sig);
@@ -742,6 +892,7 @@ impl<'ast> Visit<'ast> for Builder {
             &node.sig,
             Some(&node.block),
         );
+        self.record_auth_attributes(&node.attrs);
         syn::visit::visit_impl_item_fn(self, node);
         self.exit_function();
     }
@@ -900,10 +1051,12 @@ impl<'ast> Visit<'ast> for Builder {
     fn visit_expr_index(&mut self, node: &'ast syn::ExprIndex) {
         if !self.skip() {
             let span = SourceSpan::of(node);
+            let inputs = self.parameters_in(&syn::Expr::Index(node.clone()));
             self.model.panics.push(PanicSite {
                 site: self.site(span),
                 kind: PanicKind::Index,
                 on: Some(canonical(&node.expr)),
+                inputs,
                 text: canonical(node),
                 span,
             });
@@ -916,6 +1069,25 @@ impl<'ast> Visit<'ast> for Builder {
             if let Expr::Path(path) = &*node.func {
                 if let Some(segment) = path.path.segments.last() {
                     self.push_call_graph_edge(segment.ident.to_string());
+                    // `module::function(..)` may resolve to another crate; remember
+                    // it so a rule can tell "does nothing" from "delegates to code
+                    // outside this package".
+                    let module_path = path.path.segments.len() >= 2
+                        && path.path.segments.first().is_some_and(|first| {
+                            first
+                                .ident
+                                .to_string()
+                                .starts_with(|c: char| c.is_ascii_lowercase())
+                        });
+                    if module_path {
+                        if let Some(caller) = self.function.as_ref().map(|ctx| ctx.name.clone()) {
+                            self.module_calls.push((
+                                caller,
+                                canonical(&path.path),
+                                segment.ident.to_string(),
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -943,6 +1115,7 @@ impl<'ast> Visit<'ast> for Builder {
                     site: self.site(span),
                     kind,
                     on: None,
+                    inputs: Vec::new(),
                     text: canonical(node),
                     span,
                 });
@@ -1658,6 +1831,86 @@ impl Vault {
     }
 
     #[test]
+    fn trait_impl_methods_are_entrypoints() {
+        let model = model_of(
+            r#"
+#[contractimpl]
+impl Pool for PoolContract {
+    fn submit(e: Env, from: Address) { from.require_auth(); }
+    fn set_admin(e: Env, admin: Address) { e.storage().instance().set(&ADMIN, &admin); }
+}
+impl Helper for PoolContract {
+    fn not_exported(e: Env) {}
+}
+"#,
+        );
+        let names: Vec<&str> = model.entrypoints().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["submit", "set_admin"]);
+    }
+
+    #[test]
+    fn storage_keys_resolve_through_local_bindings() {
+        let model = model_of(
+            r#"
+#[contractimpl]
+impl Votes {
+    pub fn count(e: Env, account: Address, total: bool) -> u32 {
+        if total {
+            let key = VotesKey::Total;
+            e.storage().instance().get(&key).unwrap_or(0)
+        } else {
+            let key = VotesKey::Account(account.clone());
+            let again = key.clone();
+            e.storage().persistent().get(&again).unwrap_or(0)
+        }
+    }
+    pub fn generic(e: Env, key: Symbol) {
+        e.storage().temporary().set(&key, &1);
+    }
+}
+"#,
+        );
+        let keys: Vec<&str> = model
+            .storage_ops
+            .iter()
+            .filter_map(|op| op.key.as_deref())
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "VotesKey::Total",
+                "VotesKey::Account(account.clone())",
+                "key"
+            ]
+        );
+    }
+
+    #[test]
+    fn access_control_macros_count_as_authorization() {
+        let model = model_of(
+            r#"
+#[contractimpl]
+impl Vault {
+    #[only_owner]
+    pub fn set_fee(e: &Env, fee: u32) { e.storage().instance().set(&FEE, &fee); }
+
+    #[only_role(operator, "manager")]
+    pub fn pause(e: &Env, operator: Address) { e.storage().instance().set(&P, &true); }
+
+    #[has_role(caller, "viewer")]
+    pub fn touch(e: &Env, caller: Address) { e.storage().instance().set(&T, &1); }
+}
+"#,
+        );
+        assert!(model.has_transitive_auth("set_fee"));
+        assert!(model.has_transitive_auth("pause"));
+        let role = model.auth_in("pause").next().unwrap();
+        assert!(role.binds_to("operator"));
+        // `has_role` checks membership but never calls `require_auth`.
+        assert!(!model.has_transitive_auth("touch"));
+    }
+
+    #[test]
     fn records_randomness_only_when_used_as_entropy() {
         let model = model_of(
             r#"
@@ -1666,7 +1919,10 @@ impl Lottery {
     pub fn draw(env: Env) {
         let winner = env.ledger().timestamp() % 10;
         let plain = env.ledger().sequence();
-        let _ = (winner, plain);
+        let expired = env.ledger().timestamp() > deadline;
+        let elapsed = env.ledger().timestamp() - start;
+        let epoch = env.ledger().sequence() / period;
+        let _ = (winner, plain, expired, elapsed, epoch);
     }
 }
 "#,

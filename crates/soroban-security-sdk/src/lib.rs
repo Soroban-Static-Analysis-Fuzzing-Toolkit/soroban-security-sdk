@@ -97,7 +97,8 @@ pub mod syntax;
 pub mod wasm;
 
 pub use crate::analysis::{
-    analyze, analyze_with, AnalysisReport, Diagnostic, DiagnosticKind, Project, ProjectBuilder,
+    analyze, analyze_with, analyze_workspace, AnalysisReport, Diagnostic, DiagnosticKind, Project,
+    ProjectBuilder, Workspace,
 };
 pub use crate::budget::{
     BudgetAxis, BudgetEstimate, BudgetReport, BudgetViolation, EntrypointBudget,

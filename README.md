@@ -1,6 +1,10 @@
 # soroban-security-sdk
 
-An open-source security toolkit for [Soroban](https://soroban.stellar.org/) smart
+[![CI](https://github.com/Soroban-Static-Analysis-Fuzzing-Toolkit/soroban-security-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/Soroban-Static-Analysis-Fuzzing-Toolkit/soroban-security-sdk/actions/workflows/ci.yml)
+[![Real-world evaluation](https://github.com/Soroban-Static-Analysis-Fuzzing-Toolkit/soroban-security-sdk/actions/workflows/real-world.yml/badge.svg)](docs/real-world-evaluation.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+An open-source security toolkit for [Soroban](https://developers.stellar.org/docs/build/smart-contracts/overview) smart
 contracts: a detector engine for the vulnerability classes that are specific to
 Soroban, a typed model of a contract derived from its Rust source, a
 resource-budget estimator that bounds instruction, memory and ledger-entry usage
@@ -13,6 +17,24 @@ contract memory on every call. The bugs that follow from those rules — a missi
 `require_auth`, the same ledger key read and written through different storage
 tiers, arithmetic that wraps because release overflow checks are off — are not
 caught by a general-purpose Rust linter. This project encodes them as detectors.
+
+## Tested on real contracts
+
+Every change is checked against three audited Soroban codebases at pinned
+commits: Stellar's official examples, OpenZeppelin's Stellar contracts and the
+Blend v2 lending protocol. Together they hold over 500 entrypoints across about
+120 contract crates.
+
+| repository | findings |
+|------------|---------:|
+| [stellar/soroban-examples](https://github.com/stellar/soroban-examples) | 52 |
+| [OpenZeppelin/stellar-contracts](https://github.com/OpenZeppelin/stellar-contracts) | 47 |
+| [blend-capital/blend-contracts-v2](https://github.com/blend-capital/blend-contracts-v2) | 10 |
+
+Each remaining finding has been triaged by hand.
+[`docs/real-world-evaluation.md`](docs/real-world-evaluation.md) explains what
+each one is, what earlier versions got wrong and how it was fixed. Run
+`scripts/real-world-eval.sh` to reproduce the numbers.
 
 ## Layout
 
@@ -43,8 +65,16 @@ ids, unused suppressions) and the per-entrypoint budget estimates.
 
 ## Command line
 
+Build the CLI from source, or download a prebuilt binary from the
+[releases page](https://github.com/Soroban-Static-Analysis-Fuzzing-Toolkit/soroban-security-sdk/releases):
+
+```bash
+cargo install --git https://github.com/Soroban-Static-Analysis-Fuzzing-Toolkit/soroban-security-sdk soroban-sec
+```
+
 ```bash
 soroban-sec path/to/contract                       # human-readable report
+soroban-sec path/to/repo                           # every contract crate, one by one
 soroban-sec path/to/contract --wasm contract.wasm  # include the compiled code
 soroban-sec path/to/contract --format sarif -o out.sarif
 soroban-sec path/to/contract --fail-on high        # non-zero exit for CI
@@ -53,6 +83,13 @@ soroban-sec --list-rules --format json         # machine-readable catalogue
 soroban-sec --list-rules --format markdown      # the docs/rules.md source
 soroban-sec --explain SSDK001
 ```
+
+Pointed at a directory, the scanner analyses each Cargo package on its own, so
+independent contracts in one repository never share a model. Crates that do not
+depend on `soroban-sdk`, and `fuzz`/`tests`/`benches` packages, are skipped and
+listed as diagnostics. Test code is excluded, whether inline `#[cfg(test)]`
+items, `#[cfg(test)] mod test;` files or `tests/` directories; pass
+`--include-tests` to analyse it too.
 
 Adopting the scanner on an existing contract? Record the findings you already
 accept as a baseline, then fail CI only on new ones:
@@ -205,9 +242,11 @@ Every fixture declares the **exact** set of rules it must produce and the clean
 fixtures must produce none, so an extra finding is a test failure rather than a
 silent regression. The corpus includes *near-miss* fixtures — code that
 superficially resembles a vulnerability but is correct — and
-`tests/corpus.rs` reports both precision and recall, currently 100% on each:
-precision against the declared rule sets and recall against the catalogue, since
-every rule must be exercised by at least one fixture.
+`tests/corpus.rs` reports both precision and recall on the corpus, currently
+100% on each: precision against the declared rule sets and recall against the
+catalogue, since every rule must be exercised by at least one fixture. Those
+numbers describe the fixtures only; for behaviour on code that was not written
+for the tool, see [the real-world evaluation](docs/real-world-evaluation.md).
 
 The analyser also fuzzes itself: `tests/robustness.rs` feeds the parser and model
 builder generated token soup and mutated real contracts, because a panic on code

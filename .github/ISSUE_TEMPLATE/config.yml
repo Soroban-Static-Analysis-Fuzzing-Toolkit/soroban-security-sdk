@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a vulnerability in soroban-sec itself
+    url: https://github.com/Soroban-Static-Analysis-Fuzzing-Toolkit/soroban-security-sdk/security/advisories/new
+    about: Please report security issues privately, not as a public issue.

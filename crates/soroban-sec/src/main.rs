@@ -143,9 +143,17 @@ fn run(cli: Cli) -> Result<ExitCode> {
     }
 
     let config = load_config(&cli)?;
-    let project = Project::from_dir(&cli.path)
-        .with_context(|| format!("loading `{}`", cli.path.display()))?;
-    let report = analyze(&project, &config);
+    // A directory is analysed package by package so that independent contracts
+    // in one repository are not merged into a single model. A `.wasm` module
+    // belongs to exactly one package, so `--wasm` keeps the single-project mode.
+    let report = if cli.path.is_dir() && config.wasm_path.is_none() {
+        analyze_workspace(&cli.path, &config)
+            .with_context(|| format!("loading `{}`", cli.path.display()))?
+    } else {
+        let project = Project::from_dir(&cli.path)
+            .with_context(|| format!("loading `{}`", cli.path.display()))?;
+        analyze(&project, &config)
+    };
 
     let rendered = match cli.format {
         Format::Text => render_text(&report, std::io::stdout().is_terminal()),

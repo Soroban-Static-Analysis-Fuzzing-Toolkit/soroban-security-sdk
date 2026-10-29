@@ -56,6 +56,11 @@ const FIXTURES: &[Fixture] = &[
         expected: &[],
     },
     Fixture {
+        name: "clean/near_miss_panics.rs",
+        source: include_str!("fixtures/clean/near_miss_panics.rs"),
+        expected: &[],
+    },
+    Fixture {
         name: "vulnerable/missing_auth.rs",
         source: include_str!("fixtures/vulnerable/missing_auth.rs"),
         expected: &["SSDK001"],

@@ -25,7 +25,9 @@ impl Detector for PredictableRandomness {
     .description(
         "Ledger timestamps and sequence numbers are known to whoever submits a \
          transaction and can be ground until the outcome is favourable, so they are \
-         not usable as entropy for lotteries, mints or shuffles.",
+         not usable as entropy for lotteries, mints or shuffles. Reported when the \
+         value is reduced or mixed (`%`, `^`, `&`); deadline comparisons and \
+         elapsed-time arithmetic are ordinary uses and are not reported.",
     )
     .tags(&["randomness", "entropy", "lottery"])
     .references(&[Reference::new(
@@ -197,9 +199,11 @@ impl Detector for PanicOnCallerInput {
     .confidence(Confidence::Medium)
     .category(Category::PanicSafety)
     .description(
-        "A panic aborts the entire transaction. When the panic is reachable from \
-         caller-controlled data it becomes a denial-of-service primitive: the caller \
-         pays the fee and the call cannot be recovered.",
+        "A panic aborts the entire transaction. Reported when an `unwrap`, `expect` or \
+         index depends on a parameter of the enclosing function — most often a storage \
+         read keyed by a caller-supplied address that has no entry yet — and for \
+         `todo!`/`unimplemented!` left in contract code. Panics on contract state \
+         alone and explicit `panic!` rejections are treated as deliberate.",
     )
     .tags(&["panic", "dos", "availability"])
     .references(&[Reference::new(
@@ -209,34 +213,82 @@ impl Detector for PanicOnCallerInput {
 
     fn detect<'a>(&self, ctx: &AnalysisContext<'a>, sink: &mut FindingSink<'a>) {
         for panic in &ctx.model().panics {
-            if !panic.kind.is_always_defect() {
-                continue;
+            match panic.kind {
+                // Unfinished code that reached a deployed contract.
+                PanicKind::Todo | PanicKind::Unimplemented => {
+                    sink.report(format!(
+                        "`{}` aborts every call that reaches it",
+                        panic.describe()
+                    ))
+                    .severity(Severity::High)
+                    .confidence(Confidence::High)
+                    .primary(panic.site.file, panic.span)
+                    .in_function(panic.site.function.clone())
+                    .help("Implement the branch or return a typed error before deploying.")
+                    .emit();
+                }
+                // An `unwrap`, `expect` or index whose outcome the caller decides.
+                // A panic on contract state alone (`get(&Admin).unwrap()` after the
+                // constructor set it) is an invariant, and an explicit `panic!` is a
+                // deliberate rejection; neither is caller-triggerable by accident.
+                //
+                // Only panics written directly in an entrypoint are reported: its
+                // parameters are exactly what the caller sends, whereas a helper's
+                // parameters may be validated or constructed internally. A
+                // `checked_*(..).expect(..)` is the recommended overflow guard.
+                PanicKind::Unwrap | PanicKind::Expect | PanicKind::Index
+                    if !panic.inputs.is_empty()
+                        && ctx.is_entrypoint(&panic.site.function)
+                        && !guards_checked_arithmetic(panic.on.as_deref()) =>
+                {
+                    let inputs = panic
+                        .inputs
+                        .iter()
+                        .map(|input| format!("`{input}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let mut finding = sink
+                        .report(format!(
+                            "`{}` aborts the call for caller-chosen {inputs}",
+                            panic.describe()
+                        ))
+                        .confidence(if panic.on_storage_read() {
+                            Confidence::High
+                        } else {
+                            Confidence::Medium
+                        })
+                        .primary(panic.site.file, panic.span)
+                        .in_function(panic.site.function.clone())
+                        .note(
+                            "Any caller can pick a value that triggers the panic, so the \
+                             call fails with an opaque host error instead of a typed one.",
+                        );
+                    if panic.on_storage_read() {
+                        finding = finding.help(
+                            "A missing entry is an expected case for caller-supplied keys: \
+                             use `unwrap_or` with a default or return a `#[contracterror]`.",
+                        );
+                    } else {
+                        finding = finding.help(
+                            "Validate the input and return a `#[contracterror]` instead of \
+                             panicking.",
+                        );
+                    }
+                    finding.emit();
+                }
+                _ => {}
             }
-            let fatal = matches!(
-                panic.kind,
-                PanicKind::Panic | PanicKind::Todo | PanicKind::Unimplemented
-            );
-            sink.report(format!("`{}` aborts the call", panic.describe()))
-                .severity(if fatal {
-                    Severity::High
-                } else {
-                    Severity::Medium
-                })
-                .confidence(if panic.on_storage_read() {
-                    Confidence::High
-                } else {
-                    Confidence::Medium
-                })
-                .primary(panic.site.file, panic.span)
-                .in_function(panic.site.function.clone())
-                .note(
-                    "An attacker who can trigger the panic can deny service, and the \
-                     caller still pays the transaction fee.",
-                )
-                .help("Return a typed error (`Result`) instead of panicking on caller input.")
-                .emit();
         }
     }
 }
 
 crate::declare_detector!(PanicOnCallerInput);
+
+/// Whether an `unwrap`/`expect` receiver is a `checked_*` arithmetic call, e.g.
+/// `balance.checked_add(amount)`.
+fn guards_checked_arithmetic(receiver: Option<&str>) -> bool {
+    receiver.is_some_and(|text| {
+        text.rsplit_once(".checked_")
+            .is_some_and(|(_, call)| !call.contains('.'))
+    })
+}

@@ -27,7 +27,7 @@ impl Detector for UncheckedTokenArithmetic {
     .description(
         "Rust disables integer overflow checks in release builds unless the crate \
          opts in with `[profile.release] overflow-checks = true`. On an amount-like \
-         type such as `i128`, an overflow it not caught and the balance silently \
+         type such as `i128`, an overflow is not caught and the balance silently \
          wraps, which is the classic token-mint bug.",
     )
     .tags(&["arithmetic", "overflow", "token"])
@@ -210,7 +210,7 @@ impl Detector for OverflowChecksDisabled {
             return;
         }
         let location = Location {
-            file: package.manifest_path.display().to_string(),
+            file: package.display_path.clone(),
             file_id: None,
             span: None,
             function: None,

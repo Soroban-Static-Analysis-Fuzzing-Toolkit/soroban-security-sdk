@@ -14,6 +14,7 @@ pub mod builder;
 pub mod calls;
 pub mod control;
 pub mod storage;
+mod test_files;
 
 pub use arithmetic::{ArithmeticSite, CastSite, IntegerOp};
 pub use auth::{AuthCheck, AuthKind};
@@ -208,6 +209,9 @@ pub struct ContractModel {
     pub randomness: Vec<RandomnessSite>,
     /// Source-level call graph between function names.
     pub call_graph: BTreeMap<String, Vec<String>>,
+    /// `module::function(..)` calls to functions not defined in the analysed
+    /// sources, keyed by caller — typically a library in another crate.
+    pub external_calls: BTreeMap<String, Vec<String>>,
 }
 
 /// Build the model for every file in `sources`.
